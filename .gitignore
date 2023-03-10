@@ -1,4 +1,7 @@
 .cache/
+.ipynb_checkpoints/
 __pycache__/
-bazel-*/
+bazel-*
 build/
+
+*.pkl

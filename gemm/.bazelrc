@@ -1,0 +1,5 @@
+build:linux --cxxopt=-std=c++17
+build:linux --cxxopt=-march=native
+
+test:benchmark --cache_test_results=no
+test:benchmark --test_output=streamed

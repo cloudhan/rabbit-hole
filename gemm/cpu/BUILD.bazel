@@ -1,0 +1,38 @@
+load("@rules_foreign_cc//foreign_cc:defs.bzl", "configure_make")
+load("@pybind11_bazel//:build_defs.bzl", "pybind_extension")
+
+package(default_visibility = ["//visibility:public"])
+
+configure_make(
+    name = "blis",
+    args = [
+        "VERBOSE=1",
+        "-j8",
+    ],
+    configure_options = ["auto"],
+    copts = [
+        "-O3",
+        "-m64",
+        "-mavx2",
+        "-std=c99",
+        "-march=native",
+        "-fopenmp",
+    ],
+    features = ["-default_compile_flags"],
+    lib_name = "libblis",
+    lib_source = "@com_github_flame_blis//:blis_all_files",
+    linkopts = ["-lpthread"],
+)
+
+cc_library(
+    name = "matmul_impl",
+    srcs = glob(["**/matmul_*.cpp"]),
+    hdrs = glob(["**/matmul.hpp", "**/matmul_*.hpp"]),
+    deps = [":blis"]
+)
+
+pybind_extension(
+    name = "matmul",
+    srcs = ["pybind_matmul.cpp"],
+    deps = [":matmul_impl"]
+)

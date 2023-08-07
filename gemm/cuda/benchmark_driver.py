@@ -16,6 +16,7 @@ if os.name == "nt":
         os.path.join(os.path.dirname(__file__), "../windows/bazel-bin/cuda/matmul.pyd"), winmode=0)
 
 from dataclasses import dataclass, field
+import hashlib
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -82,8 +83,16 @@ def benchmark_aggregate(*dataframes):
   return df
 
 
+def get_deterministic_line_color(name):
+  m = hashlib.md5()
+  m.update(name.encode("utf-8"))
+  return "#" + m.hexdigest()[:6]
+
+
 def benchmark_plot(*dataframes, **kwargs):
   df = benchmark_aggregate(*dataframes)
+
+  deterministic_color = kwargs.get("deterministic_color", False)
 
   newfig = kwargs.get("newfig", True)
   if newfig:
@@ -95,6 +104,8 @@ def benchmark_plot(*dataframes, **kwargs):
   for col in gflops:
     s = gflops[col]
     line, = plt.plot(s.dropna(), marker="o", linestyle='-')
+    if deterministic_color:
+      line.set_color(get_deterministic_line_color(col))
     line.set_label(col)
 
   plt.legend()

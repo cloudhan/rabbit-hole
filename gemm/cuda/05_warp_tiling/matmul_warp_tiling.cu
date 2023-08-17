@@ -113,9 +113,9 @@ __launch_bounds__(NumThreads) MATMUL_KERNEL_SIGNATURE(matmul_kernel_warp_tiling)
   }
 
   // store acc registers results to C
-#pragma unroll
+#pragma unroll 1
   for (int b = 0; b < ThreadShapeN; b++) {
-#pragma unroll
+#pragma unroll 1
     for (int a = 0; a < ThreadShapeM; a++) {
       if (thread_i + a < m && thread_j + b < n) {
         c[(thread_i + a) * 1 + (thread_j + b) * ldc] = acc[b][a];
@@ -133,9 +133,16 @@ __launch_bounds__(NumThreads) MATMUL_KERNEL_SIGNATURE(matmul_kernel_warp_tiling)
     CUDA_CHECK(cudaGetLastError());                                                                                                                                                            \
   }
 
-MATMUL_KERNEL_LAUNCH_THREAD_TILING(matmul_kernel_warp_tiling, 256, 128, 128, 32, 128, 16, 8, 8);
-MATMUL_KERNEL_LAUNCH_THREAD_TILING(matmul_kernel_warp_tiling, 256, 128, 128, 32, 64, 32, 8, 8);
-MATMUL_KERNEL_LAUNCH_THREAD_TILING(matmul_kernel_warp_tiling, 256, 128, 128, 32, 32, 64, 8, 8);
-MATMUL_KERNEL_LAUNCH_THREAD_TILING(matmul_kernel_warp_tiling, 256, 128, 128, 32, 16, 128, 8, 8);
+MATMUL_KERNEL_LAUNCH_THREAD_TILING(matmul_kernel_warp_tiling, 256, 128, 128, 8, 128, 16, 8, 8);
+MATMUL_KERNEL_LAUNCH_THREAD_TILING(matmul_kernel_warp_tiling, 256, 128, 128, 8, 64, 32, 8, 8);
+MATMUL_KERNEL_LAUNCH_THREAD_TILING(matmul_kernel_warp_tiling, 256, 128, 128, 8, 32, 64, 8, 8);
+MATMUL_KERNEL_LAUNCH_THREAD_TILING(matmul_kernel_warp_tiling, 256, 128, 128, 8, 16, 128, 8, 8);
+
+MATMUL_DMODULE(m) {
+  REGISTER(launch_matmul_kernel_warp_tiling_256t_cta128x128_smem8_warp128x16_thread8x8);
+  REGISTER(launch_matmul_kernel_warp_tiling_256t_cta128x128_smem8_warp64x32_thread8x8);
+  REGISTER(launch_matmul_kernel_warp_tiling_256t_cta128x128_smem8_warp32x64_thread8x8);
+  REGISTER(launch_matmul_kernel_warp_tiling_256t_cta128x128_smem8_warp16x128_thread8x8);
+}
 
 }  // namespace column_major

@@ -25,14 +25,19 @@ configure_make(
 )
 
 cc_library(
+    name = "matmul_interface",
+    hdrs = ["matmul.hpp"],
+)
+
+cc_library(
     name = "matmul_impl",
     srcs = glob(["**/matmul_*.cpp"]),
-    hdrs = glob(["**/matmul.hpp", "**/matmul_*.hpp"]),
-    deps = [":blis"]
+    hdrs = glob(["**/matmul_*.hpp"]),
+    deps = [":blis", ":matmul_interface"],
 )
 
 pybind_extension(
     name = "matmul",
     srcs = ["pybind_matmul.cpp"],
-    deps = [":matmul_impl"]
+    deps = [":matmul_impl"],
 )

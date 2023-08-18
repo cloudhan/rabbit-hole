@@ -2,10 +2,6 @@
 
 namespace column_major {
 
-#define A(i, j) a[(j)*lda + (i)]
-#define B(i, j) b[(j)*ldb + (i)]
-#define C(i, j) c[(j)*ldc + (i)]
-
 MATMUL_KERNEL_SIGNATURE(matmul_kernel_naive) {
   int i = blockDim.x * blockIdx.x + threadIdx.x;
   int j = blockDim.y * blockIdx.y + threadIdx.y;
@@ -44,5 +40,12 @@ MATMUL_KERNEL_LAUNCH_NAIVE(matmul_kernel_naive, 32, 32);
 // MATMUL_KERNEL_LAUNCH_NAIVE(matmul_kernel_naive, 128, 64);
 // MATMUL_KERNEL_LAUNCH_NAIVE(matmul_kernel_naive, 64, 256);
 // MATMUL_KERNEL_LAUNCH_NAIVE(matmul_kernel_naive, 256, 64);
+
+MATMUL_DMODULE(m) {
+  REGISTER(launch_matmul_kernel_naive_cta16x16);
+  REGISTER(launch_matmul_kernel_naive_cta16x32);
+  REGISTER(launch_matmul_kernel_naive_cta32x16);
+  REGISTER(launch_matmul_kernel_naive_cta32x32);
+}
 
 }  // namespace column_major

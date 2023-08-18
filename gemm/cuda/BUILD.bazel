@@ -1,11 +1,14 @@
 load("@rules_cuda//cuda:defs.bzl", "cuda_library")
-load("@pybind11_bazel//:build_defs.bzl", "pybind_extension")
+load("@pybind11_bazel//:build_defs.bzl", "pybind_library")
 
 package(default_visibility = ["//visibility:public"])
 
-cc_library(
+pybind_library(
     name = "matmul_interface",
-    hdrs = ["matmul.cuh"],
+    hdrs = [
+        "matmul.cuh",
+        "pybind_matmul.hpp",
+    ],
 )
 
 cuda_library(
@@ -20,11 +23,14 @@ cuda_library(
         "//cpu:matmul_interface",
         "@local_cuda//:cublas",
     ],
+    alwayslink = 1,
 )
 
-pybind_extension(
-    name = "matmul",
+cc_binary(
+    name = "matmul.so",
     srcs = ["pybind_matmul.cpp"],
+    linkshared = 1,
+    linkstatic = 1,
     deps = [":matmul_impl"],
 )
 

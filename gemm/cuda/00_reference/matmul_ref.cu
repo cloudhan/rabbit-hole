@@ -1,4 +1,5 @@
 #include "cpu/matmul.hpp"
+#include "cuda/matmul.cuh"
 
 #include <memory>
 #include <type_traits>
@@ -39,6 +40,10 @@ MATMUL_SIGNATURE(matmul_reference) {
       &zero,
       c, ldc
   ));
+}
+
+MATMUL_DMODULE(m) {
+  REGISTER(matmul_reference);
 }
 
 }  // namespace column_major

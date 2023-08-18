@@ -1,13 +1,23 @@
 import os
 import sys
-if not os.path.exists(os.path.join(os.path.dirname(__file__), "../bazel-bin/cuda/matmul.so")):
-  raise EnvironmentError("bazel build -c opt --config=linux '//cuda:matmul.so'")
-sys.path.append(os.path.join(os.path.dirname(__file__), "../bazel-bin/cuda"))
+if os.name == "posix":
+  if not os.path.exists(os.path.join(os.path.dirname(__file__), "../linux/bazel-bin/cuda/matmul.so")):
+    raise EnvironmentError("bazel build -c opt --config=linux '//cuda:matmul.so'")
+  sys.path.append(os.path.join(os.path.dirname(__file__), "../linux/bazel-bin/cuda"))
+if os.name == "nt":
+  if not os.path.exists(os.path.join(os.path.dirname(__file__), "../windows/bazel-bin/cuda/matmul.pyd")):
+    raise EnvironmentError("bazel build -c opt --config=windows '//cuda:matmul.pyd'")
+  sys.path.append(os.path.join(os.path.dirname(__file__), "../windows/bazel-bin/cuda"))
+  if tuple(sys.version_info) > (3, 8):
+    # fuck this shit, see https://stackoverflow.com/a/64472088/2091555
+    # always use winmode=0 and preload the library. So that I don't suffer from the add_dll_directory chaos
+    import ctypes
+    matmul_lib = ctypes.CDLL(os.path.join(os.path.dirname(__file__), "../windows/bazel-bin/cuda/matmul.pyd"), winmode=0)
 
 import numpy as np
 import pytest
 import matmul
-
+print(matmul.__file__)
 
 def get_bound(dtype: str, a: np.ndarray, b: np.ndarray, c: np.ndarray, transa: bool, transb: bool):
   k = b.shape[1] if transb else b.shape[0]

@@ -22,6 +22,7 @@ configure_make(
     lib_name = "libblis",
     lib_source = "@com_github_flame_blis//:blis_all_files",
     linkopts = ["-lpthread"],
+    target_compatible_with = ["@platforms//os:linux"],
 )
 
 cc_library(

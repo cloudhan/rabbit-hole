@@ -10,7 +10,6 @@
 namespace py = pybind11;
 
 #define REGISTER(name)                                                                         \
-  MATMUL_SIGNATURE(name);                                                                      \
   m.def(                                                                                       \
       #name,                                                                                   \
       [&](py::array_t<float> a, py::array_t<float> b, py::array_t<float> c, int repeats = 1) { \
@@ -61,6 +60,13 @@ namespace py = pybind11;
   );
 
 namespace column_major {
+// MSVC is not happy with function local forward decl
+MATMUL_SIGNATURE(matmul_reference);
+MATMUL_SIGNATURE(launch_matmul_kernel_naive_cta16x16);
+MATMUL_SIGNATURE(launch_matmul_kernel_naive_cta16x32);
+MATMUL_SIGNATURE(launch_matmul_kernel_naive_cta32x16);
+MATMUL_SIGNATURE(launch_matmul_kernel_naive_cta32x32);
+
 PYBIND11_MODULE(matmul, m) {
   REGISTER(matmul_reference);
   REGISTER(launch_matmul_kernel_naive_cta16x16);

@@ -27,3 +27,11 @@ pybind_extension(
     srcs = ["pybind_matmul.cpp"],
     deps = [":matmul_impl"],
 )
+
+genrule(
+    name = "matmul_copy",
+    srcs = [":matmul.so"],
+    outs = ["matmul.pyd"],
+    cmd_bat = "copy /Y $< $@",
+    target_compatible_with = ["@platforms//os:windows"],
+)

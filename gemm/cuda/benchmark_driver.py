@@ -15,6 +15,7 @@ if os.name == "nt":
     matmul_lib = ctypes.CDLL(
         os.path.join(os.path.dirname(__file__), "../windows/bazel-bin/cuda/matmul.pyd"), winmode=0)
 
+import time
 from dataclasses import dataclass, field
 import hashlib
 import numpy as np
@@ -60,7 +61,7 @@ def run_benchmark(f, size, *, benchmark_seconds=2.5, max_iterations=20) -> stat:
 
   expected_iterations = int(np.ceil(benchmark_seconds / probe_stat.seconds))
   repeats = min(expected_iterations, max_iterations)
-  return stat(size, f(a, b, c, repeats=repeats), repeats)
+  return stat(size, f(a, b, c, repeats=repeats, warmup=5), repeats)
 
 
 def benchmark(f, sizes, cached=False, cached_name=None):

@@ -109,3 +109,31 @@ def benchmark_plot(*dataframes, **kwargs):
     line.set_label(col)
 
   plt.legend()
+
+
+def new_benchmark_plot(*dataframes, **kwargs):
+  df = benchmark_aggregate(*dataframes)
+  df = df["gflops"]
+  impls = [name for name in df.columns]
+  df = df.reset_index()
+
+  import altair as alt
+
+  highlight = alt.selection_point(on="mouseover", fields=["impl"], nearest=True)
+
+  chart = alt.Chart(df)
+  chart = chart.transform_fold(impls, as_=["impl", "gflops"])
+  chart = chart.mark_line(point=True, strokeWidth=2)
+  chart = chart.encode(
+      x="size:Q",
+      y="gflops:Q",
+      color="impl:N",
+      tooltip=["impl:N", "gflops:Q", "size:Q"],
+  )
+  chart = chart.transform_filter('isValid(datum.gflops)')  # drop nan
+  chart = chart.add_params(highlight)
+  chart = chart.properties(width=1000, height=300)
+  chart = chart.configure_point(size=100)
+  chart = chart.configure_axis(labelFontSize=12, titleFontSize=14)
+  chart = chart.configure_legend(labelLimit=0)
+  return chart

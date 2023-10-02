@@ -142,7 +142,7 @@ __launch_bounds__(NumThreads, 2) MATMUL_KERNEL_SIGNATURE(matmul_kernel_smem) {
   acc_store(m, n, c, ldc, acc, thread_i, thread_j);
 }
 
-#define MATMUL_KERNEL_LAUNCH_THREAD_TILING(name, num_threads, cta_shape_m, cta_shape_n, smem_shape_k, thread_shape_m, thread_shape_n)                    \
+#define MATMUL_KERNEL_LAUNCH(name, num_threads, cta_shape_m, cta_shape_n, smem_shape_k, thread_shape_m, thread_shape_n)                    \
   MATMUL_SIGNATURE(launch_##name##_##num_threads##t_cta##cta_shape_m##x##cta_shape_n##_smem##smem_shape_k##_thread##thread_shape_m##x##thread_shape_n) { \
     dim3 threads(num_threads);                                                                                                                           \
     dim3 blocks(ceil_div<int64_t>(m, cta_shape_m), ceil_div<int64_t>(n, cta_shape_n));                                                                   \
@@ -151,13 +151,13 @@ __launch_bounds__(NumThreads, 2) MATMUL_KERNEL_SIGNATURE(matmul_kernel_smem) {
     CUDA_CHECK(cudaGetLastError());                                                                                                                      \
   }
 
-MATMUL_KERNEL_LAUNCH_THREAD_TILING(matmul_kernel_smem, 256, 128, 128, 4, 8, 8);
-MATMUL_KERNEL_LAUNCH_THREAD_TILING(matmul_kernel_smem, 256, 128, 128, 8, 8, 8);
-MATMUL_KERNEL_LAUNCH_THREAD_TILING(matmul_kernel_smem, 256, 128, 128, 16, 8, 8);
-MATMUL_KERNEL_LAUNCH_THREAD_TILING(matmul_kernel_smem, 256, 128, 128, 24, 8, 8);
-MATMUL_KERNEL_LAUNCH_THREAD_TILING(matmul_kernel_smem, 256, 128, 128, 32, 8, 8);
-MATMUL_KERNEL_LAUNCH_THREAD_TILING(matmul_kernel_smem, 256, 128, 128, 40, 8, 8);
-MATMUL_KERNEL_LAUNCH_THREAD_TILING(matmul_kernel_smem, 256, 128, 128, 48, 8, 8);
+MATMUL_KERNEL_LAUNCH(matmul_kernel_smem, 256, 128, 128, 4, 8, 8);
+MATMUL_KERNEL_LAUNCH(matmul_kernel_smem, 256, 128, 128, 8, 8, 8);
+MATMUL_KERNEL_LAUNCH(matmul_kernel_smem, 256, 128, 128, 16, 8, 8);
+MATMUL_KERNEL_LAUNCH(matmul_kernel_smem, 256, 128, 128, 24, 8, 8);
+MATMUL_KERNEL_LAUNCH(matmul_kernel_smem, 256, 128, 128, 32, 8, 8);
+MATMUL_KERNEL_LAUNCH(matmul_kernel_smem, 256, 128, 128, 40, 8, 8);
+MATMUL_KERNEL_LAUNCH(matmul_kernel_smem, 256, 128, 128, 48, 8, 8);
 
 MATMUL_DMODULE(m) {
   REGISTER(launch_matmul_kernel_smem_256t_cta128x128_smem4_thread8x8);

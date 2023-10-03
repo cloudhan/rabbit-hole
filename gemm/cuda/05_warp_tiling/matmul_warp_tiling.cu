@@ -134,11 +134,14 @@ MATMUL_KERNEL_SIGNATURE(matmul_kernel_warp_tiling) {
   __shared__ Array<SmemShapeK, SmemShapeM> smem_a;
   __shared__ Array<SmemShapeK, SmemShapeN> smem_b;
 
-  const int warp_idx = threadIdx.x / warpSize;
-  const int warp_part_i = (warp_idx % (CtaShapeM / WarpShapeM)) * WarpShapeM;
-  const int warp_part_j = (warp_idx / (CtaShapeM / WarpShapeM)) * WarpShapeN;
-  const int warp_i = warp_part_i + ((threadIdx.x % warpSize) % (WarpShapeM / ThreadShapeM)) * ThreadShapeM;
-  const int warp_j = warp_part_j + ((threadIdx.x % warpSize) / (WarpShapeM / ThreadShapeM)) * ThreadShapeN;
+  const int warp_id = threadIdx.x / warpSize;  // can be accessed with special registers %warpid in PTX
+  const int lane_id = threadIdx.x % warpSize;  // can be accessed with special registers %laneid in PTX
+  // from cta to warp
+  const int cta_warp_i = (warp_id % (CtaShapeM / WarpShapeM)) * WarpShapeM;
+  const int cta_warp_j = (warp_id / (CtaShapeM / WarpShapeM)) * WarpShapeN;
+  // from cta to thread
+  const int cta_thread_i = cta_warp_i + (lane_id % (WarpShapeM / ThreadShapeM)) * ThreadShapeM;
+  const int cta_thread_j = cta_warp_j + (lane_id / (WarpShapeM / ThreadShapeM)) * ThreadShapeN;
 
   Acc<ThreadShapeM, ThreadShapeN> acc{};
   Fragment<ThreadShapeM> frag_a;
@@ -152,8 +155,8 @@ MATMUL_KERNEL_SIGNATURE(matmul_kernel_warp_tiling) {
 
     // each thread then load from shared memory to register and perform the rank-1 update
     // threads are not organized naively as previous kernel, instead, each warp now have a shape.
-    const auto smem_A_thread_i = warp_i;
-    const auto smem_B_thread_j = warp_j;
+    const auto smem_A_thread_i = cta_thread_i;
+    const auto smem_B_thread_j = cta_thread_j;
     // #pragma unroll
     for (int smem_AB_thread_p = 0; smem_AB_thread_p < SmemShapeK; smem_AB_thread_p++) {
       // register load
@@ -166,14 +169,14 @@ MATMUL_KERNEL_SIGNATURE(matmul_kernel_warp_tiling) {
   }
 
   // store acc registers results to C
-  const int cta_part_i = CtaShapeM * blockIdx.x;
-  const int cta_part_j = CtaShapeN * blockIdx.y;
-  const int thread_i = cta_part_i + warp_i;
-  const int thread_j = cta_part_j + warp_j;
+  const int cta_i = CtaShapeM * blockIdx.x;
+  const int cta_j = CtaShapeN * blockIdx.y;
+  const int thread_i = cta_i + cta_thread_i;
+  const int thread_j = cta_j + cta_thread_j;
   acc_store(m, n, c, ldc, acc, thread_i, thread_j);
 }
 
-#define MATMUL_KERNEL_LAUNCH(name, num_threads, cta_shape_m, cta_shape_n, smem_shape_k, warp_shape_m, warp_shape_n, thread_shape_m, thread_shape_n)                              \
+#define MATMUL_KERNEL_LAUNCH(name, num_threads, cta_shape_m, cta_shape_n, smem_shape_k, warp_shape_m, warp_shape_n, thread_shape_m, thread_shape_n)                                            \
   MATMUL_SIGNATURE(launch_##name##_##num_threads##t_cta##cta_shape_m##x##cta_shape_n##_smem##smem_shape_k##_warp##warp_shape_m##x##warp_shape_n##_thread##thread_shape_m##x##thread_shape_n) { \
     dim3 threads(num_threads);                                                                                                                                                                 \
     dim3 blocks(ceil_div<int64_t>(m, cta_shape_m), ceil_div<int64_t>(n, cta_shape_n));                                                                                                         \

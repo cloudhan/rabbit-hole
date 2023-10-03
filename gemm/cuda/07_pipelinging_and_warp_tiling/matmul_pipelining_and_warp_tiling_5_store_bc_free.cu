@@ -204,11 +204,12 @@ MATMUL_KERNEL_SIGNATURE(matmul_kernel_pipelining_and_warp_tiling_5) {
   constexpr const int WarpStepM = WarpShapeM / LoadFragmentNumBatchM;
   constexpr const int WarpStepN = WarpShapeN / LoadFragmentNumBatchN;
 
-  const int warp_idx = threadIdx.x / warpSize;
-  const int warp_part_i = (warp_idx % (CtaShapeM / WarpShapeM)) * WarpShapeM;
-  const int warp_part_j = (warp_idx / (CtaShapeM / WarpShapeM)) * WarpShapeN;
-  const int warp_i = warp_part_i + ((threadIdx.x % warpSize) % (WarpShapeM / ThreadShapeM)) * 4;
-  const int warp_j = warp_part_j + ((threadIdx.x % warpSize) / (WarpShapeM / ThreadShapeM)) * 4;
+  const int warp_id = threadIdx.x / warpSize;
+  const int lane_id = threadIdx.x % warpSize;
+  const int cta_warp_i = (warp_id % (CtaShapeM / WarpShapeM)) * WarpShapeM;
+  const int cta_warp_j = (warp_id / (CtaShapeM / WarpShapeM)) * WarpShapeN;
+  const int cta_thread_i = cta_warp_i + (lane_id % (WarpShapeM / ThreadShapeM)) * 4;
+  const int cta_thread_j = cta_warp_j + (lane_id / (WarpShapeM / ThreadShapeM)) * 4;
 
   Acc<ThreadShapeM, ThreadShapeN> acc{};
   Fragment<ThreadShapeM> frag_a[2];
@@ -216,8 +217,8 @@ MATMUL_KERNEL_SIGNATURE(matmul_kernel_pipelining_and_warp_tiling_5) {
 
   // each thread then load from shared memory to register and perform the rank-1 update
   // threads are not organized naively as previous kernel, instead, each warp now have a shape.
-  const auto smem_A_thread_i = warp_i;
-  const auto smem_B_thread_j = warp_j;
+  const auto smem_A_thread_i = cta_thread_i;
+  const auto smem_B_thread_j = cta_thread_j;
 
   int p_tile_count = (k - 1) / SmemShapeK + 1;
   int p_tile_curr = 0;
@@ -272,10 +273,10 @@ MATMUL_KERNEL_SIGNATURE(matmul_kernel_pipelining_and_warp_tiling_5) {
   }
 
   // store acc registers results to C
-  const int cta_part_i = CtaShapeM * blockIdx.x;
-  const int cta_part_j = CtaShapeN * blockIdx.y;
-  const int thread_i = cta_part_i + warp_i;
-  const int thread_j = cta_part_j + warp_j;
+  const int cta_i = CtaShapeM * blockIdx.x;
+  const int cta_j = CtaShapeN * blockIdx.y;
+  const int thread_i = cta_i + cta_thread_i;
+  const int thread_j = cta_j + cta_thread_j;
   acc_store<ThreadShapeM, ThreadShapeN, WarpStepM, WarpStepN>(m, n, c, ldc, acc, thread_i, thread_j);
 }
 

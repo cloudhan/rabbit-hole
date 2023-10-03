@@ -12,10 +12,16 @@ MATMUL_KERNEL_SIGNATURE(matmul_kernel_thread_tiling) {
   static_assert(CtaShapeM % ThreadShapeM == 0 && CtaShapeN % ThreadShapeN == 0);
 
   // The indexing will getting more and more complex as we go, so we establish an convention for it:
-  // [from_level]_[object]_<to_level>, for example warp_C_thread_i means index C tile at warp level to thread level
-  // if object is omitted, the it defaults to C in global memory from original matrix level
+  // [object]_[from_level]_<to_level>, for example C_warp_thread_i means index C tile at warp level to thread level
+  // if object is omitted, the it defaults to C in global memory
+  // if from_level is omitted, it defaults to the object's storage level
+  // this allows us, for example, to write C_cta_i + C_cta_warp_i + C_warp_lane_i + C_lane_thread_i
   int thread_i = CtaShapeM * blockIdx.x + (threadIdx.x % (CtaShapeM / ThreadShapeM)) * ThreadShapeM;
   int thread_j = CtaShapeN * blockIdx.y + (threadIdx.x / (CtaShapeM / ThreadShapeM)) * ThreadShapeN;
+
+  // i (or j) part of the index for A (or B) is the same as C
+  const auto& A_thread_i = thread_i;
+  const auto& B_thread_j = thread_j;
 
   if (thread_i < m && thread_j < n) {
     float acc[ThreadShapeN][ThreadShapeM]{};  // zeroing out
@@ -23,20 +29,20 @@ MATMUL_KERNEL_SIGNATURE(matmul_kernel_thread_tiling) {
     float reg_A[ThreadShapeM];  // a column register for rank-1 update
     float reg_B[ThreadShapeN];  // a row    register for rank-1 update
 
-    auto A_i_p = &a[thread_i * 1 + 0 * lda];  // A(i, p) where p = 0
-    auto B_p_j = &b[0 * 1 + thread_j * ldb];  // B(p, j) where p = 0
+    auto A_i_p = &a[A_thread_i * 1 + 0 * lda];  // A(i, p) where p = 0
+    auto B_p_j = &b[0 * 1 + B_thread_j * ldb];  // B(p, j) where p = 0
 
     for (int p = 0; p < k; p++) {
       // register load
 #pragma unroll
       for (int a = 0; a < ThreadShapeM; a++) {
-        reg_A[a] = thread_i + a < m ? *(A_i_p + a) : 0;
+        reg_A[a] = A_thread_i + a < m ? *(A_i_p + a) : 0;
       }
 
       // register load
 #pragma unroll
       for (int b = 0; b < ThreadShapeN; b++) {
-        reg_B[b] = thread_j + b < n ? *(B_p_j + b * ldb) : 0;
+        reg_B[b] = B_thread_j + b < n ? *(B_p_j + b * ldb) : 0;
       }
 
       // rank-1 update to acc registers
@@ -65,7 +71,7 @@ MATMUL_KERNEL_SIGNATURE(matmul_kernel_thread_tiling) {
   }
 }
 
-#define MATMUL_KERNEL_LAUNCH(name, num_threads, cta_shape_m, cta_shape_n, thread_shape_m, thread_shape_n)                            \
+#define MATMUL_KERNEL_LAUNCH(name, num_threads, cta_shape_m, cta_shape_n, thread_shape_m, thread_shape_n)                                          \
   MATMUL_SIGNATURE(launch_##name##_##num_threads##t_cta##cta_shape_m##x##cta_shape_n##_thread##thread_shape_m##x##thread_shape_n) {                \
     dim3 threads(num_threads);                                                                                                                     \
     dim3 blocks(ceil_div<int64_t>(m, cta_shape_m), ceil_div<int64_t>(n, cta_shape_n));                                                             \

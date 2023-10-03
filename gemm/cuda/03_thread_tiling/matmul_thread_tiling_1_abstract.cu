@@ -9,10 +9,16 @@ template <int Size>
 using Fragment = float[Size];
 
 template <int Size>
-__device__ void load_fragment(Fragment<Size>& frag_a /*or frag_b*/, int thread_i /*or thread_j*/, int m /*or n*/, const float* A_i_p /*or B_p_j*/, int step) {
+__device__ void load_fragment(
+    Fragment<Size>& frag_a,  // or frag_b,
+    int A_thread_i,          // or B_thread_j,
+    int m,                   // or n,
+    const float* A_i_p,      // or B_p_j,
+    int step
+) {
 #pragma unroll
   for (int i = 0; i < Size; i++, A_i_p += step) {
-    frag_a[i] = thread_i + i >= m ? 0 : *A_i_p;
+    frag_a[i] = A_thread_i + i >= m ? 0 : *A_i_p;
   }
 }
 
@@ -55,27 +61,33 @@ MATMUL_KERNEL_SIGNATURE(matmul_kernel_thread_tiling_abstract) {
   static_assert(CtaShapeM % ThreadShapeM == 0 && CtaShapeN % ThreadShapeN == 0);
 
   // The indexing will getting more and more complex as we go, so we establish an convention for it:
-  // [from_level]_[object]_<to_level>, for example warp_C_thread_i means index C tile at warp level to thread level
-  // if object is omitted, the it defaults to C in global memory from original matrix level
+  // [object]_[from_level]_<to_level>, for example C_warp_thread_i means index C tile at warp level to thread level
+  // if object is omitted, the it defaults to C in global memory
+  // if from_level is omitted, it defaults to the object's storage level
+  // this allows us, for example, to write C_cta_i + C_cta_warp_i + C_warp_lane_i + C_lane_thread_i
   int thread_i = CtaShapeM * blockIdx.x + (threadIdx.x % (CtaShapeM / ThreadShapeM)) * ThreadShapeM;
   int thread_j = CtaShapeN * blockIdx.y + (threadIdx.x / (CtaShapeM / ThreadShapeM)) * ThreadShapeN;
+
+  // i (or j) part of the index for A (or B) is the same as C
+  const auto& A_thread_i = thread_i;
+  const auto& B_thread_j = thread_j;
 
   if (thread_i < m && thread_j < n) {
     Acc<ThreadShapeM, ThreadShapeN> acc{};
     Fragment<ThreadShapeM> frag_a;  // a col register for rank-1 update
     Fragment<ThreadShapeN> frag_b;  // a row register for rank-1 update
 
-    auto A_i_p = &a[thread_i * 1 + 0 * lda];  // A(i, p) where p = 0
-    auto B_p_j = &b[0 * 1 + thread_j * ldb];  // B(p, j) where p = 0
+    auto A_i_p = &a[A_thread_i * 1 + 0 * lda];  // A(i, p) where p = 0
+    auto B_p_j = &b[0 * 1 + B_thread_j * ldb];  // B(p, j) where p = 0
 
     for (int p = 0; p < k; p++) {
-      // register load
-      load_fragment<ThreadShapeM>(frag_a, thread_i, m, A_i_p, 1);    // load a col fragment from A, thus, step is 1
-      load_fragment<ThreadShapeN>(frag_b, thread_j, n, B_p_j, ldb);  // load a row fragment from B, thus, step is ldb
+      // register load, since we load directly from gmem, pass A_thread_i (or B_thread_j) for out of bound checking
+      load_fragment<ThreadShapeM>(frag_a, A_thread_i, m, A_i_p, 1);    // load a col fragment from A, thus, step is 1
+      load_fragment<ThreadShapeN>(frag_b, B_thread_j, n, B_p_j, ldb);  // load a row fragment from B, thus, step is ldb
 
       rank1_update<ThreadShapeM, ThreadShapeN>(acc, frag_a, frag_b);
 
-      A_i_p += lda;  // advance to A(i,p+1)
+      A_i_p += lda;  // advance to A(i, p+1)
       B_p_j += 1;    // advance to B(p+1, j)
     }
 
@@ -83,7 +95,7 @@ MATMUL_KERNEL_SIGNATURE(matmul_kernel_thread_tiling_abstract) {
   }
 }
 
-#define MATMUL_KERNEL_LAUNCH(name, num_threads, cta_shape_m, cta_shape_n, thread_shape_m, thread_shape_n)                            \
+#define MATMUL_KERNEL_LAUNCH(name, num_threads, cta_shape_m, cta_shape_n, thread_shape_m, thread_shape_n)                                          \
   MATMUL_SIGNATURE(launch_##name##_##num_threads##t_cta##cta_shape_m##x##cta_shape_n##_thread##thread_shape_m##x##thread_shape_n) {                \
     dim3 threads(num_threads);                                                                                                                     \
     dim3 blocks(ceil_div<int64_t>(m, cta_shape_m), ceil_div<int64_t>(n, cta_shape_n));                                                             \

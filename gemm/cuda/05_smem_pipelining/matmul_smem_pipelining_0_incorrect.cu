@@ -27,7 +27,7 @@ __device__ void store_smem_load_global_a(
     int k,
     const float* a,
     int lda,
-    int a_thread_p
+    int a_basep
 ) {
   // Ensure the threads fill the column of A and the row of B. That is, when split only split along k-axis.
   // Otherwise, some elements will not be correctly handled.
@@ -36,7 +36,7 @@ __device__ void store_smem_load_global_a(
   constexpr const auto SmemABatchShapeK = SmemShapeK / SmemANumBatch;
 
   const int A_i = SmemShapeM * blockIdx.x + threadIdx.x % SmemShapeM;
-  const int A_batchp = a_thread_p + threadIdx.x / SmemShapeM;
+  const int A_batchp = a_basep + threadIdx.x / SmemShapeM;
 #pragma unroll
   for (int batch = 0; batch < SmemShapeM * SmemShapeK / NumThreads; batch++) {
     const auto smem_A_thread_i = threadIdx.x % SmemShapeM;
@@ -53,13 +53,13 @@ __device__ void store_smem_load_global_b(
     int n,
     const float* b,
     int ldb,
-    int b_thread_p
+    int b_basep
 ) {
   static_assert(NumThreads % SmemShapeN == 0);
   constexpr const auto SmemBNumBatch = (SmemShapeN * SmemShapeK) / NumThreads;
   constexpr const auto SmemBBatchShapeK = SmemShapeK / SmemBNumBatch;
 
-  const int B_batchp = b_thread_p + threadIdx.x % SmemBBatchShapeK;
+  const int B_batchp = b_basep + threadIdx.x % SmemBBatchShapeK;
   const int B_j = SmemShapeN * blockIdx.y + threadIdx.x / SmemBBatchShapeK;
 #pragma unroll
   for (int batch = 0; batch < SmemShapeN * SmemShapeK / NumThreads; batch++) {

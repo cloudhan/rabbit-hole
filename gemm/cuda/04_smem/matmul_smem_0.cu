@@ -105,7 +105,7 @@ __launch_bounds__(NumThreads, 2) MATMUL_KERNEL_SIGNATURE(matmul_kernel_smem) {
       const int A_i = SmemShapeM * blockIdx.x + threadIdx.x % SmemShapeM;
       const int A_batchp = p + threadIdx.x / SmemShapeM;
 #pragma unroll
-      for (int smem_batch = 0; smem_batch < SmemShapeM * SmemShapeK / NumThreads; smem_batch++) {
+      for (int smem_batch = 0; smem_batch < SmemANumBatch; smem_batch++) {
         const auto smem_A_thread_i = threadIdx.x % SmemShapeM;
         const auto smem_A_thread_p = threadIdx.x / SmemShapeM + smem_batch * SmemABatchShapeK;
         const auto A_p = A_batchp + smem_batch * SmemABatchShapeK;
@@ -115,7 +115,7 @@ __launch_bounds__(NumThreads, 2) MATMUL_KERNEL_SIGNATURE(matmul_kernel_smem) {
       const int B_batchp = p + threadIdx.x % SmemBBatchShapeK;
       const int B_j = SmemShapeN * blockIdx.y + threadIdx.x / SmemBBatchShapeK;
 #pragma unroll
-      for (int smem_batch = 0; smem_batch < SmemShapeN * SmemShapeK / NumThreads; smem_batch++) {
+      for (int smem_batch = 0; smem_batch < SmemBNumBatch; smem_batch++) {
         const auto smem_B_thread_p = threadIdx.x % SmemBBatchShapeK + smem_batch * SmemBBatchShapeK;
         const auto smem_B_thread_j = threadIdx.x / SmemBBatchShapeK;
         const auto B_p = B_batchp + smem_batch * SmemBBatchShapeK;

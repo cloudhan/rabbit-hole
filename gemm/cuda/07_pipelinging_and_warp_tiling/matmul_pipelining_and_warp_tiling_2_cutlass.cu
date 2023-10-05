@@ -63,7 +63,7 @@ __device__ void load_global_b(
   const int B_batchp = b_basep + threadIdx.x % SmemBBatchShapeK;
   const int B_j = SmemShapeN * blockIdx.y + threadIdx.x / SmemBBatchShapeK;
 #pragma unroll
-  for (int batch = 0; batch < SmemShapeN * SmemShapeK / NumThreads; batch++) {
+  for (int batch = 0; batch < SmemBNumBatch; batch++) {
     const auto B_p = B_batchp + batch * SmemBBatchShapeK;
     reg_b.reg[batch] = B_p >= k || B_j >= n ? 0 : b[B_p * 1 + B_j * ldb];
   }
@@ -92,7 +92,7 @@ __device__ void store_smem_b(
   static_assert(NumThreads % SmemShapeN == 0);
   constexpr const auto SmemBBatchShapeK = SmemShapeK / SmemBNumBatch;
 #pragma unroll
-  for (int batch = 0; batch < SmemShapeN * SmemShapeK / NumThreads; batch++) {
+  for (int batch = 0; batch < SmemBNumBatch; batch++) {
     const auto smem_B_thread_p = threadIdx.x % SmemBBatchShapeK + batch * SmemBBatchShapeK;
     const auto smem_B_thread_j = threadIdx.x / SmemBBatchShapeK;
     smem_b.mem[smem_B_thread_p][smem_B_thread_j] = reg_b.reg[batch];

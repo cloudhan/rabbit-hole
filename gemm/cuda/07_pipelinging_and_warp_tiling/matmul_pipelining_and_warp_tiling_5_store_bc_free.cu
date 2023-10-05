@@ -65,7 +65,7 @@ __device__ void load_global_b(
   const int B_p = b_basep + threadIdx.x % SmemShapeK;
   const int B_batchj = b_cta_j + threadIdx.x / SmemShapeK;
 #pragma unroll
-  for (int batch = 0; batch < SmemShapeN * SmemShapeK / NumThreads; batch++) {
+  for (int batch = 0; batch < SmemBNumBatch; batch++) {
     const auto B_j = B_batchj + batch * SmemBBatchShapeN;
     reg_b.reg[batch] = B_p >= k || B_j >= n ? 0 : b[B_p * 1 + B_j * ldb];
   }

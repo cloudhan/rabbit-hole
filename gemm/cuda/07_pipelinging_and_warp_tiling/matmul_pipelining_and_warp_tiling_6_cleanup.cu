@@ -37,14 +37,14 @@ __device__ void load_global_a(
   // Ensure the threads fill the column of A and the row of B. That is, when split only split along k-axis.
   // Otherwise, some elements will not be correctly handled.
   static_assert(NumThreads % SmemShapeM == 0);
-  constexpr const auto SmemABatchShapeK = SmemShapeK / SmemANumBatch;
-
+  const auto SmemABatchShapeK = SmemShapeK / SmemANumBatch;
   const int A_i = SmemShapeM * blockIdx.x + threadIdx.x % SmemShapeM;
   const int A_batchp = a_basep + threadIdx.x / SmemShapeM;
   auto A_p = A_batchp;
+  const auto* a_ptr = &a[A_i * 1 + A_p * lda];
 #pragma unroll
-  for (int batch = 0; batch < SmemANumBatch; batch++, A_p += SmemABatchShapeK) {
-    reg_a.reg[batch] = A_i >= m || A_p >= k ? 0 : a[A_i * 1 + A_p * lda];
+  for (int batch = 0; batch < SmemANumBatch; batch++, A_p += SmemABatchShapeK, a_ptr += SmemABatchShapeK * lda) {
+    reg_a.reg[batch] = A_i >= m || A_p >= k ? 0 : *a_ptr;
   }
 }
 
@@ -59,15 +59,15 @@ __device__ void load_global_b(
 ) {
   static_assert(NumThreads % SmemShapeK == 0);
   static_assert((SmemShapeN * SmemShapeK) % NumThreads == 0);
-  constexpr const auto SmemBBatchShapeN = SmemShapeN / SmemBNumBatch;
-
+  const auto SmemBBatchShapeN = SmemShapeN / SmemBNumBatch;
   const int b_cta_j = SmemShapeN * blockIdx.y;
   const int B_p = b_basep + threadIdx.x % SmemShapeK;
   const int B_batchj = b_cta_j + threadIdx.x / SmemShapeK;
   auto B_j = B_batchj;
+  const auto* b_ptr = &b[B_p * 1 + B_j * ldb];
 #pragma unroll
-  for (int batch = 0; batch < SmemShapeN * SmemShapeK / NumThreads; batch++, B_j += SmemBBatchShapeN) {
-    reg_b.reg[batch] = B_p >= k || B_j >= n ? 0 : b[B_p * 1 + B_j * ldb];
+  for (int batch = 0; batch < SmemBNumBatch; batch++, B_j += SmemBBatchShapeN, b_ptr += SmemBBatchShapeN * ldb) {
+    reg_b.reg[batch] = B_p >= k || B_j >= n ? 0 : *b_ptr;
   }
 }
 
@@ -77,12 +77,13 @@ __device__ void store_smem_a(
     const Registers<SmemANumBatch>& reg_a
 ) {
   static_assert(NumThreads % SmemShapeM == 0);
-  constexpr const auto SmemABatchShapeK = SmemShapeK / SmemANumBatch;
+  const auto SmemABatchShapeK = SmemShapeK / SmemANumBatch;
   const auto smem_A_thread_i = threadIdx.x % SmemShapeM;
   auto smem_A_thread_p = threadIdx.x / SmemShapeM;
+  auto* smem_a_ptr = &smem_a.mem[smem_A_thread_p][smem_A_thread_i];
 #pragma unroll
-  for (int batch = 0; batch < SmemANumBatch; batch++, smem_A_thread_p += SmemABatchShapeK) {
-    smem_a.mem[smem_A_thread_p][smem_A_thread_i] = reg_a.reg[batch];
+  for (int batch = 0; batch < SmemANumBatch; batch++, smem_a_ptr += SmemABatchShapeK * SmemShapeM) {
+    *smem_a_ptr = reg_a.reg[batch];
   }
 }
 
@@ -96,9 +97,10 @@ __device__ void store_smem_b(
   constexpr const auto SmemBBatchShapeN = SmemShapeN / SmemBNumBatch;
   const auto smem_B_thread_p = threadIdx.x % SmemShapeK;
   auto smem_B_thread_j = threadIdx.x / SmemShapeK;
+  auto* smem_b_ptr = &smem_b.mem[smem_B_thread_p][smem_B_thread_j];
 #pragma unroll
-  for (int batch = 0; batch < SmemBNumBatch; batch++, smem_B_thread_j += SmemBBatchShapeN) {
-    smem_b.mem[smem_B_thread_p][smem_B_thread_j] = reg_b.reg[batch];
+  for (int batch = 0; batch < SmemBNumBatch; batch++, smem_b_ptr += SmemBBatchShapeN) {
+    *smem_b_ptr = reg_b.reg[batch];
   }
 }
 

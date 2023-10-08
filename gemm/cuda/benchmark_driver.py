@@ -53,14 +53,17 @@ class stat:
         self.size, self.milliseconds, self.gflops, self.repeats)
 
 
-def run_benchmark(f, size, *, benchmark_seconds=2.5, max_iterations=20) -> stat:
+def run_benchmark(f, size, *, min_iterations=20, max_iterations=100) -> stat:
+  benchmark_seconds= (0.100 / (4096 ** 3)) * size ** 3
   a = np.zeros((size, size), dtype=np.float32)
   b = np.zeros((size, size), dtype=np.float32)
   c = np.zeros((size, size), dtype=np.float32)
-  probe_stat = stat(size, f(a, b, c, repeats=1), None)  # this is also warmup
+  probe_stat = stat(size, f(a, b, c, repeats=3, warmup=1), None)
 
   expected_iterations = int(np.ceil(benchmark_seconds / probe_stat.seconds))
-  repeats = min(expected_iterations, max_iterations)
+  repeats = expected_iterations
+  repeats = min(repeats, max_iterations)
+  repeats = max(repeats, min_iterations)
   return stat(size, f(a, b, c, repeats=repeats, warmup=5), repeats)
 
 

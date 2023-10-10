@@ -1,0 +1,35 @@
+cc_binary(
+    name = "00_layout",
+    srcs = ["00_layout.cc"],
+    deps = [
+        "@com_github_nvidia_cutlass//:cutlass",
+        "@local_cuda//:cuda_headers",
+    ],
+)
+
+cc_binary(
+    name = "01_slice",
+    srcs = ["01_slice.cc"],
+    deps = [
+        "@com_github_nvidia_cutlass//:cutlass",
+        "@local_cuda//:cuda_headers",
+    ],
+)
+
+cc_binary(
+    name = "02_dice",
+    srcs = ["02_dice.cc"],
+    deps = [
+        "@com_github_nvidia_cutlass//:cutlass",
+        "@local_cuda//:cuda_headers",
+    ],
+)
+
+cc_binary(
+    name = "03_local_tile",
+    srcs = ["03_local_tile.cc"],
+    deps = [
+        "@com_github_nvidia_cutlass//:cutlass",
+        "@local_cuda//:cuda_headers",
+    ],
+)

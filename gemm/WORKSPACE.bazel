@@ -68,6 +68,26 @@ filegroup(
     workspace_file_content = "",
 )
 
+# cutlass/cute
+http_archive(
+    name = "com_github_nvidia_cutlass",
+    build_file_content = """package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "cutlass",
+    hdrs = glob([
+        "include/cute/**/*.hpp",
+        "include/cutlass/**/*.h",
+    ]),
+    includes = ["include"],
+)
+""",
+    sha256 = "55df1da3b45b8d7e37581aa5200dd0032db8378ce4cbd5f19eb3cd368dfcff62",
+    strip_prefix = "cutlass-ff02da266713bd3365aed65c552412e126c040cb",
+    urls = ["https://github.com/NVIDIA/cutlass/archive/ff02da266713bd3365aed65c552412e126c040cb.tar.gz"],
+    workspace_file_content = "",
+)
+
 # pybind11
 http_archive(
     name = "pybind11_bazel",

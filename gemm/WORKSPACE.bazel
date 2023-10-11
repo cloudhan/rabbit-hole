@@ -41,9 +41,9 @@ rules_foreign_cc_dependencies()
 # rules_cuda
 http_archive(
     name = "rules_cuda",
-    sha256 = "a92ff23be2f898b1a22b822544f32ba851c018a1f57ef5822d2eee0b3b0e8b81",
-    strip_prefix = "rules_cuda-cfdb1bcf46e3bf26a050f06ef839aff8fdf94883",
-    url = "https://github.com/bazel-contrib/rules_cuda/archive/cfdb1bcf46e3bf26a050f06ef839aff8fdf94883.tar.gz",
+    sha256 = "fa1462c4c3104de44489800a1da055f55afa57795789539c835e069818786f71",
+    strip_prefix = "rules_cuda-cab1fa2dd0e1f8489f566c91a5025856cf5ae572",
+    urls = ["https://github.com/bazel-contrib/rules_cuda/archive/cab1fa2dd0e1f8489f566c91a5025856cf5ae572.tar.gz"],
 )
 
 load("@rules_cuda//cuda:repositories.bzl", "register_detected_cuda_toolchains", "rules_cuda_dependencies")

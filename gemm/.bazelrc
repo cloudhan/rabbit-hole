@@ -1,5 +1,15 @@
+common:linux --symlink_prefix=linux/bazel-
 build:linux --cxxopt=-std=c++17
 build:linux --cxxopt=-march=native
+build:linux --@rules_cuda//cuda:copts=-std=c++17
+build:linux --spawn_strategy=local
+
+common:windows --symlink_prefix=windows/bazel-
+build:windows --cxxopt=/std:c++17
+build:windows --cxxopt=/permissive-
+build:windows --@rules_cuda//cuda:copts=-std=c++17
+
+build:profile --@rules_cuda//cuda:copts=-lineinfo
 
 test:benchmark --cache_test_results=no
 test:benchmark --test_output=streamed

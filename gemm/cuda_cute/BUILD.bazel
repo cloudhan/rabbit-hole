@@ -1,0 +1,36 @@
+load("@rules_cuda//cuda:defs.bzl", "cuda_library")
+load("@pybind11_bazel//:build_defs.bzl", "pybind_library")
+
+package(default_visibility = ["//visibility:public"])
+
+cuda_library(
+    name = "matmul_impl",
+    srcs = glob([
+        "**/matmul_*.cpp",
+        "**/matmul_*.cu",
+    ]),
+    hdrs = glob(["**/matmul_*.cuh"]),
+    deps = [
+        "//cuda:matmul_interface",
+        "//cpu:matmul_interface",
+        "@com_github_nvidia_cutlass//:cutlass",
+        "@local_cuda//:cublas",
+    ],
+    alwayslink = 1,
+)
+
+cc_binary(
+    name = "matmul.so",
+    srcs = ["//cuda:pybind_matmul.cpp"],
+    linkshared = 1,
+    linkstatic = 1,
+    deps = [":matmul_impl"],
+)
+
+genrule(
+    name = "matmul_copy",
+    srcs = [":matmul.so"],
+    outs = ["matmul.pyd"],
+    cmd_bat = "copy /Y $< $@",
+    target_compatible_with = ["@platforms//os:windows"],
+)

@@ -9,27 +9,30 @@ using namespace cute;
 
 namespace column_major {
 template <int CtaShapeM, int CtaShapeN>
-MATMUL_KERNEL_SIGNATURE(matmul_kernel_1d_cta) {
+MATMUL_KERNEL_SIGNATURE(matmul_kernel_1d_cta_projection) {
   // original matrix
   const auto mA = make_tensor(make_gmem_ptr(a), make_layout(make_shape(m, k), make_stride(_1{}, lda)));  // col-major, indexed as (m, k)
-  const auto mB = make_tensor(make_gmem_ptr(b), make_layout(make_shape(k, n), make_stride(_1{}, ldb)));  // col-major, indexed as (k, n)
+  const auto mB = make_tensor(make_gmem_ptr(b), make_layout(make_shape(n, k), make_stride(ldb, _1{})));  // col-major storage, row-major indexing, indexed as (n, k), effectively a "transposed view"
   auto mC = make_tensor(make_gmem_ptr(c), make_layout(make_shape(m, n), make_stride(_1{}, ldc)));        // col-major, indexed as (m, n)
 
+  const auto CtaShape = make_shape(Int<CtaShapeM>{}, Int<CtaShapeN>{}, k);
+  const auto cta_coord = make_coord(blockIdx.x, blockIdx.y, _);
+
   // a local view (in CuTe term, local tile) this cta will need to process
-  const auto ctaA = local_tile(mA, make_tile(Int<CtaShapeM>{}, k), make_coord(blockIdx.x, _));  // in form of numpy: A[blockIdx.x*CtaShapeM:(blockIdx.x+1)*CtaShapeM, :]
-  const auto ctaB = local_tile(mB, make_tile(k, Int<CtaShapeN>{}), make_coord(_, blockIdx.y));  // in form of numpy: B[:, blockIdx.y*CtaShapeN:(blockIdx.y+1)*CtaShapeN]
-  auto ctaC = local_tile(mC, make_tile(Int<CtaShapeM>{}, Int<CtaShapeN>{}), make_coord(blockIdx.x, blockIdx.y));
+  const auto ctaA = local_tile(mA, CtaShape, cta_coord, make_step(_1{}, _, _1{}));
+  const auto ctaB = local_tile(mB, CtaShape, cta_coord, make_step(_, _1{}, _1{}));
+  auto ctaC = local_tile(mC, CtaShape, cta_coord, make_step(_1{}, _1{}, _));
 
   const auto CtaLayout = make_layout(make_shape(Int<CtaShapeM>{}, Int<CtaShapeN>{}));
   const auto [cta_thread_i, cta_thread_j] = idx2crd(make_tuple(threadIdx.x, threadIdx.x), CtaLayout.shape(), CtaLayout.stride());
 
   if (blockIdx.x * CtaShapeM + cta_thread_i < m && blockIdx.y * CtaShapeN + cta_thread_j < n) {
     const auto A_i_p = local_tile(ctaA, make_tile(_1{}, k), make_coord(cta_thread_i, _));  // A(i, _)
-    const auto B_p_j = local_tile(ctaB, make_tile(k, _1{}), make_coord(_, cta_thread_j));  // B(_, j)
+    const auto B_j_p = local_tile(ctaB, make_tile(_1{}, k), make_coord(cta_thread_j, _));  // B(j, _)
 
     float acc = 0.0;
     for (int p = 0; p < k; p++) {
-      acc += A_i_p(p) * B_p_j(p);
+      acc += A_i_p(p) * B_j_p(p);
     }
     ctaC(cta_thread_i, cta_thread_j) = acc;
   }
@@ -43,16 +46,16 @@ MATMUL_KERNEL_SIGNATURE(matmul_kernel_1d_cta) {
     CUDA_CHECK(cudaGetLastError());                                                                   \
   }
 
-MATMUL_KERNEL_LAUNCH(matmul_kernel_1d_cta, 256, 16, 16);
-MATMUL_KERNEL_LAUNCH(matmul_kernel_1d_cta, 512, 16, 32);
-MATMUL_KERNEL_LAUNCH(matmul_kernel_1d_cta, 512, 32, 16);
-MATMUL_KERNEL_LAUNCH(matmul_kernel_1d_cta, 1024, 32, 32);
+MATMUL_KERNEL_LAUNCH(matmul_kernel_1d_cta_projection, 256, 16, 16);
+MATMUL_KERNEL_LAUNCH(matmul_kernel_1d_cta_projection, 512, 16, 32);
+MATMUL_KERNEL_LAUNCH(matmul_kernel_1d_cta_projection, 512, 32, 16);
+MATMUL_KERNEL_LAUNCH(matmul_kernel_1d_cta_projection, 1024, 32, 32);
 
 MATMUL_DMODULE(m) {
-  REGISTER(launch_matmul_kernel_1d_cta_256t_cta16x16);
-  REGISTER(launch_matmul_kernel_1d_cta_512t_cta16x32);
-  REGISTER(launch_matmul_kernel_1d_cta_512t_cta32x16);
-  REGISTER(launch_matmul_kernel_1d_cta_1024t_cta32x32);
+  REGISTER(launch_matmul_kernel_1d_cta_projection_256t_cta16x16);
+  REGISTER(launch_matmul_kernel_1d_cta_projection_512t_cta16x32);
+  REGISTER(launch_matmul_kernel_1d_cta_projection_512t_cta32x16);
+  REGISTER(launch_matmul_kernel_1d_cta_projection_1024t_cta32x32);
 }
 
 }  // namespace column_major

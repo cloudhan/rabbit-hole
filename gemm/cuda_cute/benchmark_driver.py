@@ -21,6 +21,8 @@ import hashlib
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+
+import matmul
 from matmul import *
 
 
@@ -54,7 +56,7 @@ class stat:
 
 
 def run_benchmark(f, size, *, min_iterations=20, max_iterations=100) -> stat:
-  benchmark_seconds= (0.100 / (4096 ** 3)) * size ** 3
+  benchmark_seconds = (0.100 / (4096**3)) * size**3
   a = np.zeros((size, size), dtype=np.float32)
   b = np.zeros((size, size), dtype=np.float32)
   c = np.zeros((size, size), dtype=np.float32)
@@ -141,3 +143,17 @@ def new_benchmark_plot(*dataframes, **kwargs):
   chart = chart.configure_axis(labelFontSize=12, titleFontSize=14)
   chart = chart.configure_legend(labelLimit=0)
   return chart
+
+
+if __name__ == "__main__":
+  available = list(filter(lambda name: name.startswith("matmul_") or name.startswith("launch_"), dir(matmul)))
+
+  print("Available tests:")
+  for name in available:
+    print("   ", name)
+
+  selected = sys.argv[1] if len(sys.argv) > 1 else available[0]
+  f = getattr(matmul, selected)
+  size = int(sys.argv[2]) if len(sys.argv) > 2 else 1024
+  print(f"Running {selected} for [{size}x{size}] * [{size}x{size}] ...")
+  print(run_benchmark(f, size))

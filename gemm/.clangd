@@ -1,0 +1,20 @@
+---
+CompileFlags:
+  Add:
+    - -std=c++17
+    - --no-cuda-version-check
+    - -Iexternal/com_github_nvidia_cutlass/include
+
+---
+If:
+  PathMatch: .*\.cuh?
+CompileFlags:
+  Add:
+    - -xcu
+
+---
+If:
+  PathMatch: .*/include/(cutlass|cute)/.*
+CompileFlags:
+  Add:
+    - -xcu

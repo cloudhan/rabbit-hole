@@ -20,7 +20,7 @@ void make_string_impl(std::ostringstream& oss, const T& head, Ts... tail) {
 template <typename... Ts>
 std::string make_string(Ts... args) {
   std::ostringstream oss;
-  detail::make_string_impl(oss, args...);
+  ::detail::make_string_impl(oss, args...);
   return oss.str();
 }
 

@@ -51,4 +51,6 @@ int main() {
     print_tensor(local_tile(tensor_nk, block_shape, block_coord, make_step(_, 1, 1)));
     std::cout << "\n";
   }
+
+  return 0;
 }

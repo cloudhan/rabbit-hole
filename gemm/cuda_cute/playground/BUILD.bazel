@@ -33,3 +33,58 @@ cc_binary(
         "@local_cuda//:cuda_headers",
     ],
 )
+
+cc_binary(
+    name = "04_predication",
+    srcs = ["04_predication.cc"],
+    deps = [
+        "@com_github_nvidia_cutlass//:cutlass",
+        "@local_cuda//:cuda_headers",
+    ],
+)
+
+cc_binary(
+    name = "05_logical_product",
+    srcs = ["05_logical_product.cc"],
+    deps = [
+        "@com_github_nvidia_cutlass//:cutlass",
+        "@local_cuda//:cuda_headers",
+    ],
+)
+
+cc_binary(
+    name = "06_local_partition",
+    srcs = ["06_local_partition.cc"],
+    deps = [
+        "@com_github_nvidia_cutlass//:cutlass",
+        "@local_cuda//:cuda_headers",
+    ],
+)
+
+cc_binary(
+    name = "07_compose",
+    srcs = ["07_compose.cc"],
+    deps = [
+        "@com_github_nvidia_cutlass//:cutlass",
+        "@local_cuda//:cuda_headers",
+    ],
+)
+
+cc_binary(
+    name = "07_compose_overapprox",
+    srcs = ["07_compose_overapprox.cc"],
+    deps = [
+        "@com_github_nvidia_cutlass//:cutlass",
+        "@local_cuda//:cuda_headers",
+    ],
+)
+
+cc_binary(
+    name = "07_compose_final",
+    srcs = ["07_compose_final.cc"],
+    deps = [
+        "@com_github_nvidia_cutlass//:cutlass",
+        "@local_cuda//:cuda_headers",
+    ],
+)
+

@@ -17,9 +17,9 @@ bazel_skylib_workspace()
 # compile_commands.json generator, just run bazel run @hedron_compile_commands//:refresh_all -- --config=linux
 http_archive(
     name = "hedron_compile_commands",
-    sha256 = "d41604528e5655cb77cced6d11481c2ac4072fe1cc9ae10b2ded8bd04ba23019",
-    strip_prefix = "bazel-compile-commands-extractor-928eb070ac19531b8971d347cb6962f6b2ff6b2a",
-    url = "https://github.com/hedronvision/bazel-compile-commands-extractor/archive/928eb070ac19531b8971d347cb6962f6b2ff6b2a.tar.gz",
+    sha256 = "ed5aea1dc87856aa2029cb6940a51511557c5cac3dbbcb05a4abd989862c36b4",
+    strip_prefix = "bazel-compile-commands-extractor-e16062717d9b098c3c2ac95717d2b3e661c50608",
+    url = "https://github.com/hedronvision/bazel-compile-commands-extractor/archive/e16062717d9b098c3c2ac95717d2b3e661c50608.tar.gz",
 )
 
 load("@hedron_compile_commands//:workspace_setup.bzl", "hedron_compile_commands_setup")
@@ -41,9 +41,9 @@ rules_foreign_cc_dependencies()
 # rules_cuda
 http_archive(
     name = "rules_cuda",
-    sha256 = "fa1462c4c3104de44489800a1da055f55afa57795789539c835e069818786f71",
-    strip_prefix = "rules_cuda-cab1fa2dd0e1f8489f566c91a5025856cf5ae572",
-    urls = ["https://github.com/bazel-contrib/rules_cuda/archive/cab1fa2dd0e1f8489f566c91a5025856cf5ae572.tar.gz"],
+    sha256 = "51d8510414a95e533df5768602db54451f07a19f1ac422fd9862fa6bc2daff01",
+    strip_prefix = "rules_cuda-894603f1551e2c4ca36d621766055dde94cda2b1",
+    urls = ["https://github.com/bazel-contrib/rules_cuda/archive/894603f1551e2c4ca36d621766055dde94cda2b1.tar.gz"],
 )
 
 load("@rules_cuda//cuda:repositories.bzl", "register_detected_cuda_toolchains", "rules_cuda_dependencies")

@@ -82,9 +82,10 @@ cc_library(
     includes = ["include"],
 )
 """,
-    sha256 = "55df1da3b45b8d7e37581aa5200dd0032db8378ce4cbd5f19eb3cd368dfcff62",
-    strip_prefix = "cutlass-ff02da266713bd3365aed65c552412e126c040cb",
-    urls = ["https://github.com/NVIDIA/cutlass/archive/ff02da266713bd3365aed65c552412e126c040cb.tar.gz"],
+    sha256 = "866212a5c9e93a9a509c4b6d03484e56aa3f2d5f5db6cd2b6aaacb2b8e9404b0",
+    strip_prefix = "cutlass-a75b4ac483166189a45290783cb0a18af5ff0ea5",
+    urls = ["https://github.com/NVIDIA/cutlass/archive/a75b4ac483166189a45290783cb0a18af5ff0ea5.tar.gz"],
+
     workspace_file_content = "",
 )
 

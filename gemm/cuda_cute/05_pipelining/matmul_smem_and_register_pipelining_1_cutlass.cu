@@ -46,7 +46,7 @@ __device__ void load_global_b(RegT& rB, const GmemT& gB, const CoordT& cB, int n
 }
 
 template <int NumThreads, int SmemShapeM, int SmemShapeK, int VecSize, typename SmemT, typename RegT>
-__device__ void store_smem_a(SmemT& sA, const RegT& rA, int m, int k) {
+__device__ void store_smem_a(SmemT&& sA, const RegT& rA, int m, int k) {
   static_assert(is_rmem<typename RegT::engine_type>());
   static_assert(VecSize == 1 || VecSize == 2 || VecSize == 4);
   constexpr const auto ThrVal = make_layout(make_layout(Int<NumThreads>{}, Int<VecSize>{}), make_layout(Int<VecSize>{}));
@@ -55,7 +55,7 @@ __device__ void store_smem_a(SmemT& sA, const RegT& rA, int m, int k) {
 }
 
 template <int NumThreads, int SmemShapeN, int SmemShapeK, int VecSize, typename SmemT, typename RegT>
-__device__ void store_smem_b(SmemT& sB, const RegT& rB, int n, int k) {
+__device__ void store_smem_b(SmemT&& sB, const RegT& rB, int n, int k) {
   static_assert(is_rmem<typename RegT::engine_type>());
   static_assert(VecSize == 1 || VecSize == 2 || VecSize == 4);
   constexpr const auto NumLoadK = SmemShapeK / VecSize; // number of load along k

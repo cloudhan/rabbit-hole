@@ -12,12 +12,15 @@ if os.name == "nt":
     # fuck this shit, see https://stackoverflow.com/a/64472088/2091555
     # always use winmode=0 and preload the library. So that I don't suffer from the add_dll_directory chaos
     import ctypes
-    matmul_lib = ctypes.CDLL(os.path.join(os.path.dirname(__file__), "../windows/bazel-bin/cuda/matmul.pyd"), winmode=0)
+    matmul_lib = ctypes.CDLL(
+        os.path.join(os.path.dirname(__file__), "../windows/bazel-bin/cuda/matmul.pyd"), winmode=0)
 
 import numpy as np
 import pytest
 import matmul
+
 print(matmul.__file__)
+
 
 def get_bound(dtype: str, a: np.ndarray, b: np.ndarray, c: np.ndarray, transa: bool, transb: bool):
   k = b.shape[1] if transb else b.shape[0]
@@ -37,7 +40,7 @@ def get_bound(dtype: str, a: np.ndarray, b: np.ndarray, c: np.ndarray, transa: b
   return bound
 
 
-def create_testcase(func, dtype="float32", sizes=range(512, 4096, 256)):
+def create_testcase(func, dtype="float32", sizes=(1, 11, 111, 1111) + tuple(range(512, 4096, 256))):
 
   @pytest.mark.parametrize("size", sizes)
   def test(size):

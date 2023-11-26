@@ -99,7 +99,7 @@ __device__ void store_smem_b(
   }
 }
 
-template <int FragmentSize, int Step, int SmemShapeK, int SmemShapeM /*or SmemShapeN*/>
+template <int FragmentSize, int SmemShapeK, int SmemShapeM /*or SmemShapeN*/>
 __device__ void load_fragment(
     Fragment<FragmentSize>& frag_a,               // or frag_b
     const Array<SmemShapeK, SmemShapeM>& smem_a,  // or smem_b
@@ -107,15 +107,10 @@ __device__ void load_fragment(
     int smem_a_thread_i                           // or smem_b_thread_j
 ) {
   static_assert(SmemShapeM % FragmentSize == 0);
-  static_assert(FragmentSize % 4 == 0);
-  auto base = &smem_a.mem[smem_a_thread_p][smem_a_thread_i];
+  auto ptr = &smem_a.mem[smem_a_thread_p][smem_a_thread_i];
 #pragma unroll
-  for (int f = 0; f < FragmentSize / 4; f++) {
-    auto ptr = base + f * Step;
-#pragma unroll
-    for (int n = 0; n < 4; n++) {
-      frag_a[f * 4 + n] = *ptr++;
-    }
+  for (int f = 0; f < FragmentSize; f++, ptr += 1) {
+    frag_a[f] = *ptr;
   }
 }
 
@@ -123,51 +118,30 @@ template <int ThreadShapeM, int ThreadShapeN>
 __device__ void rank1_update(Acc<ThreadShapeM, ThreadShapeN>& acc, const Fragment<ThreadShapeM>& frag_a, const Fragment<ThreadShapeN>& frag_b) {
   // rank-1 update to acc registers
 #pragma unroll
-  for (int jj = 0; jj < ThreadShapeN; jj += 4) {
+  for (int j = 0; j < ThreadShapeN; j++) {
 #pragma unroll
-    for (int ii = 0; ii < ThreadShapeM; ii += 4) {
-#pragma unroll
-      for (int j = 0; j < 4; j++) {
-#pragma unroll
-        for (int i = 0; i < 4; i++) {
-          acc[jj + j][ii + i] += frag_a[ii + i] * frag_b[jj + j];
-        }
-      }
+    for (int i = 0; i < ThreadShapeM; i++) {
+      acc[j][i] += frag_a[i] * frag_b[j];
     }
   }
 }
 
-// FIXME: change for 2x2
-template <int ThreadShapeM, int ThreadShapeN, int StepM, int StepN>
+template <int ThreadShapeM, int ThreadShapeN>
 __device__ void acc_store(int m, int n, float* C, int ldc, Acc<ThreadShapeM, ThreadShapeN>& acc, int thread_i, int thread_j) {
   // store acc registers results to C
   float* thread_c = &C[thread_i * 1 + thread_j * ldc];
 #pragma unroll
-  for (int bb = 0; bb < ThreadShapeN / 4; bb++) {
+  for (int b = 0; b < ThreadShapeN; b++) {
+    if (thread_j + b < n) {
 #pragma unroll
-    for (int aa = 0; aa < ThreadShapeM / 4; aa++) {
-#pragma unroll
-      for (int b = 0; b < 4; b++) {
-#pragma unroll
-        for (int a = 0; a < 4; a++) {
-          if (thread_j + (bb * StepN + b) < n) {
-            if (thread_i + (aa * StepM + a) < m) {
-              thread_c[(aa * StepM + a) * 1 + (bb * StepN + b) * ldc] = acc[bb * 4 + b][aa * 4 + a];
-            }
-          }
+      for (int a = 0; a < ThreadShapeM; a++) {
+        if (thread_i + a < m) {
+          thread_c[a * 1 + b * ldc] = acc[b][a];
         }
       }
     }
   }
 }
-
-#if 0
-#define PRINTF(...)                                           \
-  if (blockIdx.x == 0 && blockIdx.y == 0 && threadIdx.x == 0) \
-  printf(__VA_ARGS__)
-#else
-#define PRINTF(...)
-#endif
 
 // Laucnh a 1D CTA(threadblock)
 // Each CTA process CtaShapeM x CtaShapeN tile of C
@@ -177,7 +151,7 @@ __device__ void acc_store(int m, int n, float* C, int ldc, Acc<ThreadShapeM, Thr
 // Each thread process ThreadShapeM x ThreadShapeN of **collocated** data
 // Each thread then load (ThreadShapeM + ThreadShapeN) of elements, and do ThreadShapeM * ThreadShapeN of FMAs.
 template <int NumThreads, int CtaShapeM, int CtaShapeN, int SmemShapeK, int WarpShapeM, int WarpShapeN, int ThreadShapeM, int ThreadShapeN>
-MATMUL_KERNEL_SIGNATURE(matmul_kernel_pipelining_and_warp_tiling_3) {
+MATMUL_KERNEL_SIGNATURE(matmul_kernel_pipelining_and_warp_tiling_0_clobbered) {
   constexpr const auto SmemShapeM = CtaShapeM;
   constexpr const auto SmemShapeN = CtaShapeN;
   static_assert((SmemShapeM * SmemShapeK) % NumThreads == 0 && (SmemShapeN * SmemShapeK) % NumThreads == 0);
@@ -189,75 +163,46 @@ MATMUL_KERNEL_SIGNATURE(matmul_kernel_pipelining_and_warp_tiling_3) {
   Registers<SmemShapeM * SmemShapeK / NumThreads> staging_a;
   Registers<SmemShapeN * SmemShapeK / NumThreads> staging_b;
 
-  constexpr const int LoadFragmentNumBatchM = ThreadShapeM / 4;
-  constexpr const int LoadFragmentNumBatchN = ThreadShapeN / 4;
-  constexpr const int WarpStepM = WarpShapeM / LoadFragmentNumBatchM;
-  constexpr const int WarpStepN = WarpShapeN / LoadFragmentNumBatchN;
-
   const int warp_id = threadIdx.x / warpSize;
   const int lane_id = threadIdx.x % warpSize;
   const int cta_warp_i = (warp_id % (CtaShapeM / WarpShapeM)) * WarpShapeM;
   const int cta_warp_j = (warp_id / (CtaShapeM / WarpShapeM)) * WarpShapeN;
-  const int cta_thread_i = cta_warp_i + (lane_id % (WarpShapeM / ThreadShapeM)) * 4;
-  const int cta_thread_j = cta_warp_j + (lane_id / (WarpShapeM / ThreadShapeM)) * 4;
+  const int cta_thread_i = cta_warp_i + (lane_id % (WarpShapeM / ThreadShapeM)) * ThreadShapeM;
+  const int cta_thread_j = cta_warp_j + (lane_id / (WarpShapeM / ThreadShapeM)) * ThreadShapeN;
 
   Acc<ThreadShapeM, ThreadShapeN> acc{};
   Fragment<ThreadShapeM> frag_a[2];
   Fragment<ThreadShapeN> frag_b[2];
 
-  // each thread then load from shared memory to register and perform the rank-1 update
-  // threads are not organized naively as previous kernel, instead, each warp now have a shape.
-  const auto smem_A_thread_i = cta_thread_i;
-  const auto smem_B_thread_j = cta_thread_j;
-
-  int p_tile_count = (k - 1) / SmemShapeK + 1;
-  int p_tile_curr = 0;
-  int p_tile_next = 0;
-
   // pre-load first block of A, B to smem_A, smem_B
-  PRINTF("%4d g->r    0\n", __LINE__);
-  load_global_a<NumThreads, SmemShapeM, SmemShapeK>(staging_a, m, k, a, lda, p_tile_next);
-  load_global_b<NumThreads, SmemShapeK, SmemShapeN>(staging_b, k, n, b, ldb, p_tile_next);
-  if (--p_tile_count > 0) {
-    ++p_tile_next;
-  }
+  load_global_a<NumThreads, SmemShapeM, SmemShapeK>(staging_a, m, k, a, lda, 0);
+  load_global_b<NumThreads, SmemShapeK, SmemShapeN>(staging_b, k, n, b, ldb, 0);
+  // __syncthreads();
+  for (int p = 0; p < k; p += SmemShapeK) {
+    store_smem_a<NumThreads, SmemShapeM, SmemShapeK>(smem_a[(p / SmemShapeK) % 2], staging_a);
+    store_smem_b<NumThreads, SmemShapeK, SmemShapeN>(smem_b[(p / SmemShapeK) % 2], staging_b);
+    __syncthreads();
+    if (p + SmemShapeK < k) {
+      load_global_a<NumThreads, SmemShapeM, SmemShapeK>(staging_a, m, k, a, lda, p + SmemShapeK);
+      load_global_b<NumThreads, SmemShapeK, SmemShapeN>(staging_b, k, n, b, ldb, p + SmemShapeK);
+    }
 
-  PRINTF("%4d r->s    0\n", __LINE__);
-  store_smem_a<NumThreads, SmemShapeM, SmemShapeK>(smem_a[0], staging_a);
-  store_smem_b<NumThreads, SmemShapeK, SmemShapeN>(smem_b[0], staging_b);
-  __syncthreads();
-  // pre-load first fragment of registers
-  PRINTF("%4d s->r    0    0\n", __LINE__);
-  load_fragment<ThreadShapeM, WarpStepM, SmemShapeK, SmemShapeM>(frag_a[0], smem_a[0], 0, smem_A_thread_i);
-  load_fragment<ThreadShapeN, WarpStepN, SmemShapeK, SmemShapeN>(frag_b[0], smem_b[0], 0, smem_B_thread_j);
+    // each thread then load from shared memory to register and perform the rank-1 update
+    // threads are not organized naively as previous kernel, instead, each warp now have a shape.
+    const auto smem_A_thread_i = cta_thread_i;
+    const auto smem_B_thread_j = cta_thread_j;
 
-#pragma unroll 1  // no unroll
-  while (p_tile_count > -1) {
+    // pre-load first fragment of registers
+    load_fragment<ThreadShapeM, SmemShapeK, SmemShapeM>(frag_a[0], smem_a[(p / SmemShapeK) % 2], 0, smem_A_thread_i);
+    load_fragment<ThreadShapeN, SmemShapeK, SmemShapeN>(frag_b[0], smem_b[(p / SmemShapeK) % 2], 0, smem_B_thread_j);
 #pragma unroll
     for (int smem_AB_thread_p = 0; smem_AB_thread_p < SmemShapeK; smem_AB_thread_p++) {
-      if (smem_AB_thread_p == SmemShapeK - 1) {
-        // __syncthreads();
-        PRINTF("%4d r->s %4d\n", __LINE__, p_tile_next * SmemShapeK);
-        store_smem_a<NumThreads, SmemShapeM, SmemShapeK>(smem_a[p_tile_next % 2], staging_a);
-        store_smem_b<NumThreads, SmemShapeK, SmemShapeN>(smem_b[p_tile_next % 2], staging_b);
-        __syncthreads();
-        if (--p_tile_count > 0) {
-          ++p_tile_next;
-        }
-        ++p_tile_curr;
+      // pre-load next fragment of registers
+      if (smem_AB_thread_p + 1 < SmemShapeK) {
+        load_fragment<ThreadShapeM, SmemShapeK, SmemShapeM>(frag_a[(smem_AB_thread_p + 1) % 2], smem_a[(p / SmemShapeK) % 2], smem_AB_thread_p + 1, smem_A_thread_i);
+        load_fragment<ThreadShapeN, SmemShapeK, SmemShapeN>(frag_b[(smem_AB_thread_p + 1) % 2], smem_b[(p / SmemShapeK) % 2], smem_AB_thread_p + 1, smem_B_thread_j);
       }
 
-      PRINTF("%4d s->r %4d %4d\n", __LINE__, p_tile_curr * SmemShapeK, (smem_AB_thread_p + 1) % SmemShapeK);
-      load_fragment<ThreadShapeM, WarpStepM, SmemShapeK, SmemShapeM>(frag_a[(smem_AB_thread_p + 1) % 2], smem_a[p_tile_curr % 2], (smem_AB_thread_p + 1) % SmemShapeK, smem_A_thread_i);
-      load_fragment<ThreadShapeN, WarpStepN, SmemShapeK, SmemShapeN>(frag_b[(smem_AB_thread_p + 1) % 2], smem_b[p_tile_curr % 2], (smem_AB_thread_p + 1) % SmemShapeK, smem_B_thread_j);
-
-      if (smem_AB_thread_p == 0) {
-        PRINTF("%4d g->r %4d\n", __LINE__, p_tile_next * SmemShapeK);
-        load_global_a<NumThreads, SmemShapeM, SmemShapeK>(staging_a, m, k, a, lda, p_tile_next * SmemShapeK);
-        load_global_b<NumThreads, SmemShapeK, SmemShapeN>(staging_b, k, n, b, ldb, p_tile_next * SmemShapeK);
-      }
-
-      PRINTF("%4d acc       %4d\n", __LINE__, smem_AB_thread_p);
       rank1_update<ThreadShapeM, ThreadShapeN>(acc, frag_a[smem_AB_thread_p % 2], frag_b[smem_AB_thread_p % 2]);
     }
   }
@@ -267,7 +212,7 @@ MATMUL_KERNEL_SIGNATURE(matmul_kernel_pipelining_and_warp_tiling_3) {
   const int cta_j = CtaShapeN * blockIdx.y;
   const int thread_i = cta_i + cta_thread_i;
   const int thread_j = cta_j + cta_thread_j;
-  acc_store<ThreadShapeM, ThreadShapeN, WarpStepM, WarpStepN>(m, n, c, ldc, acc, thread_i, thread_j);
+  acc_store(m, n, c, ldc, acc, thread_i, thread_j);
 }
 
 #define MATMUL_KERNEL_LAUNCH(name, num_threads, cta_shape_m, cta_shape_n, smem_shape_k, warp_shape_m, warp_shape_n, thread_shape_m, thread_shape_n)                                            \
@@ -279,16 +224,24 @@ MATMUL_KERNEL_SIGNATURE(matmul_kernel_pipelining_and_warp_tiling_3) {
     CUDA_CHECK(cudaGetLastError());                                                                                                                                                            \
   }
 
-MATMUL_KERNEL_LAUNCH(matmul_kernel_pipelining_and_warp_tiling_3, 256, 128, 128, 8, 64, 32, 8, 8);
-MATMUL_KERNEL_LAUNCH(matmul_kernel_pipelining_and_warp_tiling_3, 256, 128, 128, 8, 32, 64, 8, 8);
-MATMUL_KERNEL_LAUNCH(matmul_kernel_pipelining_and_warp_tiling_3, 256, 128, 128, 16, 64, 32, 8, 8);
-MATMUL_KERNEL_LAUNCH(matmul_kernel_pipelining_and_warp_tiling_3, 256, 128, 128, 16, 32, 64, 8, 8);
+MATMUL_KERNEL_LAUNCH(matmul_kernel_pipelining_and_warp_tiling_0_clobbered, 256, 128, 128, 8, 128, 16, 8, 8);
+MATMUL_KERNEL_LAUNCH(matmul_kernel_pipelining_and_warp_tiling_0_clobbered, 256, 128, 128, 8, 64, 32, 8, 8);
+MATMUL_KERNEL_LAUNCH(matmul_kernel_pipelining_and_warp_tiling_0_clobbered, 256, 128, 128, 8, 32, 64, 8, 8);
+MATMUL_KERNEL_LAUNCH(matmul_kernel_pipelining_and_warp_tiling_0_clobbered, 256, 128, 128, 8, 16, 128, 8, 8);
+MATMUL_KERNEL_LAUNCH(matmul_kernel_pipelining_and_warp_tiling_0_clobbered, 256, 128, 128, 16, 128, 16, 8, 8);
+MATMUL_KERNEL_LAUNCH(matmul_kernel_pipelining_and_warp_tiling_0_clobbered, 256, 128, 128, 16, 64, 32, 8, 8);
+MATMUL_KERNEL_LAUNCH(matmul_kernel_pipelining_and_warp_tiling_0_clobbered, 256, 128, 128, 16, 32, 64, 8, 8);
+MATMUL_KERNEL_LAUNCH(matmul_kernel_pipelining_and_warp_tiling_0_clobbered, 256, 128, 128, 16, 16, 128, 8, 8);
 
 MATMUL_DMODULE(m) {
-  REGISTER(launch_matmul_kernel_pipelining_and_warp_tiling_3_256t_cta128x128_smem8_warp64x32_thread8x8);
-  REGISTER(launch_matmul_kernel_pipelining_and_warp_tiling_3_256t_cta128x128_smem8_warp32x64_thread8x8);
-  REGISTER(launch_matmul_kernel_pipelining_and_warp_tiling_3_256t_cta128x128_smem16_warp64x32_thread8x8);
-  REGISTER(launch_matmul_kernel_pipelining_and_warp_tiling_3_256t_cta128x128_smem16_warp32x64_thread8x8);
+  REGISTER(launch_matmul_kernel_pipelining_and_warp_tiling_0_clobbered_256t_cta128x128_smem8_warp128x16_thread8x8);
+  REGISTER(launch_matmul_kernel_pipelining_and_warp_tiling_0_clobbered_256t_cta128x128_smem8_warp64x32_thread8x8);
+  REGISTER(launch_matmul_kernel_pipelining_and_warp_tiling_0_clobbered_256t_cta128x128_smem8_warp32x64_thread8x8);
+  REGISTER(launch_matmul_kernel_pipelining_and_warp_tiling_0_clobbered_256t_cta128x128_smem8_warp16x128_thread8x8);
+  REGISTER(launch_matmul_kernel_pipelining_and_warp_tiling_0_clobbered_256t_cta128x128_smem16_warp128x16_thread8x8);
+  REGISTER(launch_matmul_kernel_pipelining_and_warp_tiling_0_clobbered_256t_cta128x128_smem16_warp64x32_thread8x8);
+  REGISTER(launch_matmul_kernel_pipelining_and_warp_tiling_0_clobbered_256t_cta128x128_smem16_warp32x64_thread8x8);
+  REGISTER(launch_matmul_kernel_pipelining_and_warp_tiling_0_clobbered_256t_cta128x128_smem16_warp16x128_thread8x8);
 }
 
 }  // namespace column_major

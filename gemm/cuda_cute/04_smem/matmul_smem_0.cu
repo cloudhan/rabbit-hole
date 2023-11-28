@@ -133,8 +133,8 @@ MATMUL_KERNEL_SIGNATURE(matmul_kernel_smem_0) {
     store_smem_load_global_b<NumThreads, SmemShapeN, SmemShapeK>(sB, stripe_gB(_, _, _0{}, block_p), stripe_cB(_, _, _0{}, block_p), n, k);
     __syncthreads();
 
-    const auto stripe_sA = local_tile(sA, make_tile(Int<ThreadShapeM>{}, Int<SmemShapeK>{}), threadIdx.x % (CtaShapeM / ThreadShapeM));
-    const auto stripe_sB = local_tile(sB, make_tile(Int<ThreadShapeN>{}, Int<SmemShapeK>{}), threadIdx.x / (CtaShapeM / ThreadShapeM));
+    const auto stripe_sA = local_tile(sA, make_tile(Int<ThreadShapeM>{}, Int<SmemShapeK>{}), make_coord(threadIdx.x % (CtaShapeM / ThreadShapeM)));
+    const auto stripe_sB = local_tile(sB, make_tile(Int<ThreadShapeN>{}, Int<SmemShapeK>{}), make_coord(threadIdx.x / (CtaShapeM / ThreadShapeM)));
 
 #pragma unroll
     for (int smem_AB_thread_p = 0; smem_AB_thread_p < SmemShapeK; smem_AB_thread_p++) {

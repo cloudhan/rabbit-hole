@@ -171,8 +171,8 @@ MATMUL_KERNEL_SIGNATURE(matmul_smem_and_register_pipelining_2) {
   store_smem_b<NumThreads, SmemShapeN, SmemShapeK, SmemBLoadStoreVec>(sB, staging_b, n, k);
   __syncthreads();
 
-  const auto stripe_sA = local_tile(sA, make_tile(Int<ThreadShapeM>{}, Int<SmemShapeK>{}), threadIdx.x % (CtaShapeM / ThreadShapeM));
-  const auto stripe_sB = local_tile(sB, make_tile(Int<ThreadShapeN>{}, Int<SmemShapeK>{}), threadIdx.x / (CtaShapeM / ThreadShapeM));
+  const auto stripe_sA = local_tile(sA, make_tile(Int<ThreadShapeM>{}, Int<SmemShapeK>{}), make_coord(threadIdx.x % (CtaShapeM / ThreadShapeM)));
+  const auto stripe_sB = local_tile(sB, make_tile(Int<ThreadShapeN>{}, Int<SmemShapeK>{}), make_coord(threadIdx.x / (CtaShapeM / ThreadShapeM)));
 
   copy(stripe_sA(_, 0, _0{}), fragA[0]);  // load_fragment a
   copy(stripe_sB(_, 0, _0{}), fragB[0]);  // load_fragment b

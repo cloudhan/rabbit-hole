@@ -166,8 +166,8 @@ __launch_bounds__(NumThreads, 2) MATMUL_KERNEL_SIGNATURE(matmul_smem_and_registe
   load_global_a<NumThreads, SmemShapeM, SmemShapeK, SmemALoadStoreVec>(staging_a, stripe_gA(_, _, _0{}, 0), stripe_cA(_, _, _0{}, 0), m, k);
   load_global_b<NumThreads, SmemShapeN, SmemShapeK, SmemBLoadStoreVec>(staging_b, stripe_gB(_, _, _0{}, 0), stripe_cB(_, _, _0{}, 0), n, k);
 
-  const auto stripe_sA = local_tile(sA, make_tile(Int<ThreadShapeM>{}, Int<SmemShapeK>{}), threadIdx.x % (CtaShapeM / ThreadShapeM));
-  const auto stripe_sB = local_tile(sB, make_tile(Int<ThreadShapeN>{}, Int<SmemShapeK>{}), threadIdx.x / (CtaShapeM / ThreadShapeM));
+  const auto stripe_sA = local_tile(sA, make_tile(Int<ThreadShapeM>{}, Int<SmemShapeK>{}), make_coord(threadIdx.x % (CtaShapeM / ThreadShapeM)));
+  const auto stripe_sB = local_tile(sB, make_tile(Int<ThreadShapeN>{}, Int<SmemShapeK>{}), make_coord(threadIdx.x / (CtaShapeM / ThreadShapeM)));
 
   const auto num_smem_block = size<3>(stripe_gA);
 #pragma unroll 1  // no unroll

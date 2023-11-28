@@ -122,7 +122,7 @@ __device__ void acc_store(int m, int n, float* C, int ldc, Acc<ThreadShapeM, Thr
 // Each thread process ThreadShapeM x ThreadShapeN of **collocated** data
 // Each thread then load (ThreadShapeM + ThreadShapeN) of elements, and do ThreadShapeM * ThreadShapeN of FMAs.
 template <int NumThreads, int CtaShapeM, int CtaShapeN, int SmemShapeK, int ThreadShapeM, int ThreadShapeN>
-MATMUL_KERNEL_SIGNATURE(matmul_kernel_smem_pipelining_incorrect) {
+MATMUL_KERNEL_SIGNATURE(matmul_kernel_smem_pipelining_0_incorrect) {
   constexpr const auto SmemShapeM = CtaShapeM;
   constexpr const auto SmemShapeN = CtaShapeN;
   static_assert((SmemShapeM * SmemShapeK) % NumThreads == 0 && (SmemShapeN * SmemShapeK) % NumThreads == 0);
@@ -177,20 +177,20 @@ MATMUL_KERNEL_SIGNATURE(matmul_kernel_smem_pipelining_incorrect) {
     CUDA_CHECK(cudaGetLastError());                                                                                                                      \
   }
 
-MATMUL_KERNEL_LAUNCH(matmul_kernel_smem_pipelining_incorrect, 256, 128, 128, 4, 8, 8);
-MATMUL_KERNEL_LAUNCH(matmul_kernel_smem_pipelining_incorrect, 256, 128, 128, 8, 8, 8);
-MATMUL_KERNEL_LAUNCH(matmul_kernel_smem_pipelining_incorrect, 256, 128, 128, 16, 8, 8);
-MATMUL_KERNEL_LAUNCH(matmul_kernel_smem_pipelining_incorrect, 256, 128, 128, 24, 8, 8);
+MATMUL_KERNEL_LAUNCH(matmul_kernel_smem_pipelining_0_incorrect, 256, 128, 128, 4, 8, 8);
+MATMUL_KERNEL_LAUNCH(matmul_kernel_smem_pipelining_0_incorrect, 256, 128, 128, 8, 8, 8);
+MATMUL_KERNEL_LAUNCH(matmul_kernel_smem_pipelining_0_incorrect, 256, 128, 128, 16, 8, 8);
+MATMUL_KERNEL_LAUNCH(matmul_kernel_smem_pipelining_0_incorrect, 256, 128, 128, 24, 8, 8);
 // smem is too large now due to double buffering
-// MATMUL_KERNEL_LAUNCH(matmul_kernel_smem_pipelining_incorrect, 256, 128, 128, 32, 8, 8);
-// MATMUL_KERNEL_LAUNCH(matmul_kernel_smem_pipelining_incorrect, 256, 128, 128, 40, 8, 8);
-// MATMUL_KERNEL_LAUNCH(matmul_kernel_smem_pipelining_incorrect, 256, 128, 128, 48, 8, 8);
+// MATMUL_KERNEL_LAUNCH(matmul_kernel_smem_pipelining_0_incorrect, 256, 128, 128, 32, 8, 8);
+// MATMUL_KERNEL_LAUNCH(matmul_kernel_smem_pipelining_0_incorrect, 256, 128, 128, 40, 8, 8);
+// MATMUL_KERNEL_LAUNCH(matmul_kernel_smem_pipelining_0_incorrect, 256, 128, 128, 48, 8, 8);
 
 MATMUL_DMODULE(m) {
-  REGISTER(launch_matmul_kernel_smem_pipelining_incorrect_256t_cta128x128_smem4_thread8x8);
-  REGISTER(launch_matmul_kernel_smem_pipelining_incorrect_256t_cta128x128_smem8_thread8x8);
-  REGISTER(launch_matmul_kernel_smem_pipelining_incorrect_256t_cta128x128_smem16_thread8x8);
-  REGISTER(launch_matmul_kernel_smem_pipelining_incorrect_256t_cta128x128_smem24_thread8x8);
+  REGISTER(launch_matmul_kernel_smem_pipelining_0_incorrect_256t_cta128x128_smem4_thread8x8);
+  REGISTER(launch_matmul_kernel_smem_pipelining_0_incorrect_256t_cta128x128_smem8_thread8x8);
+  REGISTER(launch_matmul_kernel_smem_pipelining_0_incorrect_256t_cta128x128_smem16_thread8x8);
+  REGISTER(launch_matmul_kernel_smem_pipelining_0_incorrect_256t_cta128x128_smem24_thread8x8);
 }
 
 }  // namespace column_major

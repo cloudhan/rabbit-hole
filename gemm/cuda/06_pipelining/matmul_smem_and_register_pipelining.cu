@@ -178,11 +178,11 @@ MATMUL_KERNEL_SIGNATURE(matmul_kernel_pipelining) {
   for (int p = 0; p < k; p += SmemShapeK) {
     store_smem_a<NumThreads, SmemShapeM, SmemShapeK>(smem_a[(p / SmemShapeK) % 2], staging_a);
     store_smem_b<NumThreads, SmemShapeK, SmemShapeN>(smem_b[(p / SmemShapeK) % 2], staging_b);
-    __syncthreads();
     if (p + SmemShapeK < k) {
       load_global_a<NumThreads, SmemShapeM, SmemShapeK>(staging_a, m, k, a, lda, p + SmemShapeK);
       load_global_b<NumThreads, SmemShapeK, SmemShapeN>(staging_b, k, n, b, ldb, p + SmemShapeK);
     }
+    __syncthreads();
 
     // each thread then load from shared memory to register and perform the rank-1 update
     const auto smem_A_thread_i = threadIdx.x % (CtaShapeM / ThreadShapeM) * ThreadShapeM;

@@ -151,7 +151,7 @@ __device__ void acc_store(int m, int n, float* C, int ldc, Acc<ThreadShapeM, Thr
 // Each thread process ThreadShapeM x ThreadShapeN of **collocated** data
 // Each thread then load (ThreadShapeM + ThreadShapeN) of elements, and do ThreadShapeM * ThreadShapeN of FMAs.
 template <int NumThreads, int CtaShapeM, int CtaShapeN, int SmemShapeK, int WarpShapeM, int WarpShapeN, int ThreadShapeM, int ThreadShapeN>
-MATMUL_KERNEL_SIGNATURE(matmul_kernel_pipelining_and_warp_tiling) {
+MATMUL_KERNEL_SIGNATURE(matmul_kernel_pipelining_and_warp_tiling_1) {
   constexpr const auto SmemShapeM = CtaShapeM;
   constexpr const auto SmemShapeN = CtaShapeN;
   static_assert((SmemShapeM * SmemShapeK) % NumThreads == 0 && (SmemShapeN * SmemShapeK) % NumThreads == 0);
@@ -224,16 +224,16 @@ MATMUL_KERNEL_SIGNATURE(matmul_kernel_pipelining_and_warp_tiling) {
     CUDA_CHECK(cudaGetLastError());                                                                                                                                                            \
   }
 
-MATMUL_KERNEL_LAUNCH(matmul_kernel_pipelining_and_warp_tiling, 256, 128, 128, 8, 64, 32, 8, 8);
-MATMUL_KERNEL_LAUNCH(matmul_kernel_pipelining_and_warp_tiling, 256, 128, 128, 8, 32, 64, 8, 8);
-MATMUL_KERNEL_LAUNCH(matmul_kernel_pipelining_and_warp_tiling, 256, 128, 128, 16, 64, 32, 8, 8);
-MATMUL_KERNEL_LAUNCH(matmul_kernel_pipelining_and_warp_tiling, 256, 128, 128, 16, 32, 64, 8, 8);
+MATMUL_KERNEL_LAUNCH(matmul_kernel_pipelining_and_warp_tiling_1, 256, 128, 128, 8, 64, 32, 8, 8);
+MATMUL_KERNEL_LAUNCH(matmul_kernel_pipelining_and_warp_tiling_1, 256, 128, 128, 8, 32, 64, 8, 8);
+MATMUL_KERNEL_LAUNCH(matmul_kernel_pipelining_and_warp_tiling_1, 256, 128, 128, 16, 64, 32, 8, 8);
+MATMUL_KERNEL_LAUNCH(matmul_kernel_pipelining_and_warp_tiling_1, 256, 128, 128, 16, 32, 64, 8, 8);
 
 MATMUL_DMODULE(m) {
-  REGISTER(launch_matmul_kernel_pipelining_and_warp_tiling_256t_cta128x128_smem8_warp64x32_thread8x8);
-  REGISTER(launch_matmul_kernel_pipelining_and_warp_tiling_256t_cta128x128_smem8_warp32x64_thread8x8);
-  REGISTER(launch_matmul_kernel_pipelining_and_warp_tiling_256t_cta128x128_smem16_warp64x32_thread8x8);
-  REGISTER(launch_matmul_kernel_pipelining_and_warp_tiling_256t_cta128x128_smem16_warp32x64_thread8x8);
+  REGISTER(launch_matmul_kernel_pipelining_and_warp_tiling_1_256t_cta128x128_smem8_warp64x32_thread8x8);
+  REGISTER(launch_matmul_kernel_pipelining_and_warp_tiling_1_256t_cta128x128_smem8_warp32x64_thread8x8);
+  REGISTER(launch_matmul_kernel_pipelining_and_warp_tiling_1_256t_cta128x128_smem16_warp64x32_thread8x8);
+  REGISTER(launch_matmul_kernel_pipelining_and_warp_tiling_1_256t_cta128x128_smem16_warp32x64_thread8x8);
 }
 
 }  // namespace column_major

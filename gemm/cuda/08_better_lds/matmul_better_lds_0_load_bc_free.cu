@@ -15,9 +15,9 @@ using Fragment = float[Size];
 
 // Since we loop along k-axis for rank-1 update. Smem of a and b matrix should have the same K dimension
 // template <int K, int Size> using Smem = float[K][Size];  // this cause ICE with nvcc 12.2
-template <int K, int Size, int Pad = 0>
+template <int K, int Size>
 struct Array {
-  float mem[K][Size + Pad];
+  float mem[K][Size];
 };
 
 // | ^ ^ ^  The transverse order of A and B.
@@ -57,16 +57,14 @@ __device__ void load_global_b(
     int ldb,
     int b_basep
 ) {
-  static_assert(NumThreads % SmemShapeK == 0);
-  static_assert((SmemShapeN * SmemShapeK) % NumThreads == 0);
-  constexpr const auto SmemBBatchShapeN = SmemShapeN / SmemBNumBatch;
+  static_assert(NumThreads % SmemShapeN == 0);
+  constexpr const auto SmemBBatchShapeK = SmemShapeK / SmemBNumBatch;
 
-  const int b_cta_j = SmemShapeN* blockIdx.y;
-  const int B_p = b_basep + threadIdx.x % SmemShapeK;
-  const int B_batchj = b_cta_j + threadIdx.x / SmemShapeK;
+  const int B_batchp = b_basep + threadIdx.x % SmemBBatchShapeK;
+  const int B_j = SmemShapeN * blockIdx.y + threadIdx.x / SmemBBatchShapeK;
 #pragma unroll
   for (int batch = 0; batch < SmemBNumBatch; batch++) {
-    const auto B_j = B_batchj + batch * SmemBBatchShapeN;
+    const auto B_p = B_batchp + batch * SmemBBatchShapeK;
     reg_b.reg[batch] = B_p >= k || B_j >= n ? 0 : b[B_p * 1 + B_j * ldb];
   }
 }
@@ -86,46 +84,38 @@ __device__ void store_smem_a(
   }
 }
 
-template <int NumThreads, int SmemShapeK, int SmemShapeN, int SmemPad, int SmemBNumBatch = (SmemShapeN * SmemShapeK) / NumThreads>
+template <int NumThreads, int SmemShapeK, int SmemShapeN, int SmemBNumBatch = (SmemShapeN * SmemShapeK) / NumThreads>
 __device__ void store_smem_b(
-    Array<SmemShapeK, SmemShapeN, SmemPad>& smem_b,
+    Array<SmemShapeK, SmemShapeN>& smem_b,
     const Registers<SmemBNumBatch>& reg_b
 ) {
-  static_assert(NumThreads % SmemShapeK == 0);
-  static_assert((SmemShapeN * SmemShapeK) % NumThreads == 0);
-  constexpr const auto SmemBBatchShapeN = SmemShapeN / SmemBNumBatch;
+  static_assert(NumThreads % SmemShapeN == 0);
+  constexpr const auto SmemBBatchShapeK = SmemShapeK / SmemBNumBatch;
 #pragma unroll
   for (int batch = 0; batch < SmemBNumBatch; batch++) {
-    const auto smem_B_thread_p = threadIdx.x % SmemShapeK;
-    const auto smem_B_thread_j = threadIdx.x / SmemShapeK + batch * SmemBBatchShapeN;
+    const auto smem_B_thread_p = threadIdx.x % SmemBBatchShapeK + batch * SmemBBatchShapeK;
+    const auto smem_B_thread_j = threadIdx.x / SmemBBatchShapeK;
     smem_b.mem[smem_B_thread_p][smem_B_thread_j] = reg_b.reg[batch];
   }
 }
 
-__forceinline__ __device__ void lds128(float& r0, float& r1, float& r2, float& r3, const float* smem_ptr) {
-  asm volatile(
-      "ld.shared.v4.f32 {%0, %1, %2, %3}, [%4];\n"
-      : "=f"(r0), "=f"(r1), "=f"(r2), "=f"(r3)
-      : "l"(__cvta_generic_to_shared(smem_ptr))
-      // https://github.com/NVIDIA/cutlass/blob/34fd98056b69fbf7f0929b3f734bb5f00642e2c9/include/cute/arch/util.hpp#L94-L133
-  );
-}
-
-template <int FragmentSize, int Step, int SmemShapeK, int SmemShapeM /*or SmemShapeN*/, int SmemPad>
+template <int FragmentSize, int Step, int SmemShapeK, int SmemShapeM /*or SmemShapeN*/>
 __device__ void load_fragment(
-    Fragment<FragmentSize>& frag_a,                        // or frag_b
-    const Array<SmemShapeK, SmemShapeM, SmemPad>& smem_a,  // or smem_b
-    int smem_a_thread_p,                                   // or smem_b_thread_p
-    int smem_a_thread_i                                    // or smem_b_thread_j
+    Fragment<FragmentSize>& frag_a,               // or frag_b
+    const Array<SmemShapeK, SmemShapeM>& smem_a,  // or smem_b
+    int smem_a_thread_p,                          // or smem_b_thread_p
+    int smem_a_thread_i                           // or smem_b_thread_j
 ) {
   static_assert(SmemShapeM % FragmentSize == 0);
   static_assert(FragmentSize % 4 == 0);
-  auto ptr = &smem_a.mem[smem_a_thread_p][smem_a_thread_i];
+  auto base = &smem_a.mem[smem_a_thread_p][smem_a_thread_i];
 #pragma unroll
-  for (int f = 0; f < FragmentSize; f += 4) {
-    // unfortunately, the compiler is not smart enough to always generate LDS.128 for load_fragment a,
-    // we then force this to happen by using inline ptx
-    lds128(frag_a[f + 0], frag_a[f + 1], frag_a[f + 2], frag_a[f + 3], ptr + (f / 4) * Step);
+  for (int f = 0; f < FragmentSize / 4; f++) {
+    auto ptr = base + f * Step;
+#pragma unroll
+    for (int n = 0; n < 4; n++) {
+      frag_a[f * 4 + n] = *ptr++;
+    }
   }
 }
 
@@ -147,6 +137,7 @@ __device__ void rank1_update(Acc<ThreadShapeM, ThreadShapeN>& acc, const Fragmen
   }
 }
 
+// FIXME: change for 2x2
 template <int ThreadShapeM, int ThreadShapeN, int StepM, int StepN>
 __device__ void acc_store(int m, int n, float* C, int ldc, Acc<ThreadShapeM, ThreadShapeN>& acc, int thread_i, int thread_j) {
   // store acc registers results to C
@@ -186,16 +177,15 @@ __device__ void acc_store(int m, int n, float* C, int ldc, Acc<ThreadShapeM, Thr
 // Each thread process ThreadShapeM x ThreadShapeN of **collocated** data
 // Each thread then load (ThreadShapeM + ThreadShapeN) of elements, and do ThreadShapeM * ThreadShapeN of FMAs.
 template <int NumThreads, int CtaShapeM, int CtaShapeN, int SmemShapeK, int WarpShapeM, int WarpShapeN, int ThreadShapeM, int ThreadShapeN>
-MATMUL_KERNEL_SIGNATURE(matmul_kernel_pipelining_and_warp_tiling_5) {
+MATMUL_KERNEL_SIGNATURE(matmul_kernel_better_lds_0_load_bc_free) {
   constexpr const auto SmemShapeM = CtaShapeM;
   constexpr const auto SmemShapeN = CtaShapeN;
   static_assert((SmemShapeM * SmemShapeK) % NumThreads == 0 && (SmemShapeN * SmemShapeK) % NumThreads == 0);
   static_assert((CtaShapeM * CtaShapeN / (ThreadShapeM * ThreadShapeN)) == NumThreads);
   static_assert(CtaShapeM % ThreadShapeM == 0 && CtaShapeN % ThreadShapeN == 0);
 
-  constexpr const int SmemBPad = 4;
   __shared__ Array<SmemShapeK, SmemShapeM> smem_a[2];
-  __shared__ Array<SmemShapeK, SmemShapeN, SmemBPad> smem_b[2];
+  __shared__ Array<SmemShapeK, SmemShapeN> smem_b[2];
   Registers<SmemShapeM * SmemShapeK / NumThreads> staging_a;
   Registers<SmemShapeN * SmemShapeK / NumThreads> staging_b;
 
@@ -289,16 +279,16 @@ MATMUL_KERNEL_SIGNATURE(matmul_kernel_pipelining_and_warp_tiling_5) {
     CUDA_CHECK(cudaGetLastError());                                                                                                                                                            \
   }
 
-MATMUL_KERNEL_LAUNCH(matmul_kernel_pipelining_and_warp_tiling_5, 256, 128, 128, 8, 64, 32, 8, 8);
-MATMUL_KERNEL_LAUNCH(matmul_kernel_pipelining_and_warp_tiling_5, 256, 128, 128, 8, 32, 64, 8, 8);
-MATMUL_KERNEL_LAUNCH(matmul_kernel_pipelining_and_warp_tiling_5, 256, 128, 128, 16, 64, 32, 8, 8);
-MATMUL_KERNEL_LAUNCH(matmul_kernel_pipelining_and_warp_tiling_5, 256, 128, 128, 16, 32, 64, 8, 8);
+MATMUL_KERNEL_LAUNCH(matmul_kernel_better_lds_0_load_bc_free, 256, 128, 128, 8, 64, 32, 8, 8);
+MATMUL_KERNEL_LAUNCH(matmul_kernel_better_lds_0_load_bc_free, 256, 128, 128, 8, 32, 64, 8, 8);
+MATMUL_KERNEL_LAUNCH(matmul_kernel_better_lds_0_load_bc_free, 256, 128, 128, 16, 64, 32, 8, 8);
+MATMUL_KERNEL_LAUNCH(matmul_kernel_better_lds_0_load_bc_free, 256, 128, 128, 16, 32, 64, 8, 8);
 
 MATMUL_DMODULE(m) {
-  REGISTER(launch_matmul_kernel_pipelining_and_warp_tiling_5_256t_cta128x128_smem8_warp64x32_thread8x8);
-  REGISTER(launch_matmul_kernel_pipelining_and_warp_tiling_5_256t_cta128x128_smem8_warp32x64_thread8x8);
-  REGISTER(launch_matmul_kernel_pipelining_and_warp_tiling_5_256t_cta128x128_smem16_warp64x32_thread8x8);
-  REGISTER(launch_matmul_kernel_pipelining_and_warp_tiling_5_256t_cta128x128_smem16_warp32x64_thread8x8);
+  REGISTER(launch_matmul_kernel_better_lds_0_load_bc_free_256t_cta128x128_smem8_warp64x32_thread8x8);
+  REGISTER(launch_matmul_kernel_better_lds_0_load_bc_free_256t_cta128x128_smem8_warp32x64_thread8x8);
+  REGISTER(launch_matmul_kernel_better_lds_0_load_bc_free_256t_cta128x128_smem16_warp64x32_thread8x8);
+  REGISTER(launch_matmul_kernel_better_lds_0_load_bc_free_256t_cta128x128_smem16_warp32x64_thread8x8);
 }
 
 }  // namespace column_major

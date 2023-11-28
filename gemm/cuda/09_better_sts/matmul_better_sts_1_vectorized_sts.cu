@@ -15,87 +15,105 @@ using Fragment = float[Size];
 
 // Since we loop along k-axis for rank-1 update. Smem of a and b matrix should have the same K dimension
 // template <int K, int Size> using Smem = float[K][Size];  // this cause ICE with nvcc 12.2
-template <int K, int Size>
+template <int K, int Size, int Pad = 0>
 struct Array {
-  float mem[K][Size];
+  float mem[K][Size + Pad];
 };
 
 // | ^ ^ ^  The transverse order of A and B.
 // |/|/|/|  The A and B are assumed to be column majored.
 // v v v |  The order ensure the access to global memory is coalesced.
 // Threads cooperatively load from global memory to shared memory
-// if number of elements in shared memory, then split the loading into multiple batches, along k-axis.
-template <int NumThreads, int SmemShapeM, int SmemShapeK, int SmemANumBatch = (SmemShapeM * SmemShapeK) / NumThreads>
+// Instead of loading with multiple batches, this kernel load them in a single vectorized form
+template <int NumThreads, int SmemShapeM, int SmemShapeK, int SmemAVectorNumElement = (SmemShapeM * SmemShapeK) / NumThreads>
 __device__ void load_global_a(
-    Registers<SmemANumBatch>& reg_a,
+    Registers<SmemAVectorNumElement>& reg_a,
     int m,
     int k,
     const float* a,
     int lda,
     int a_basep
 ) {
-  // Ensure the threads fill the column of A and the row of B. That is, when split only split along k-axis.
-  // Otherwise, some elements will not be correctly handled.
-  static_assert(NumThreads % SmemShapeM == 0);
-  constexpr const auto SmemABatchShapeK = SmemShapeK / SmemANumBatch;
+  static_assert(SmemAVectorNumElement == 1 || SmemAVectorNumElement == 2 || SmemAVectorNumElement == 4);
+  static_assert(SmemShapeM % SmemAVectorNumElement == 0);
+  static_assert((SmemShapeM * SmemShapeK) % NumThreads == 0);
 
-  const int A_i = SmemShapeM * blockIdx.x + threadIdx.x % SmemShapeM;
-  const int A_batchp = a_basep + threadIdx.x / SmemShapeM;
+  const int A_ctai = SmemShapeM * blockIdx.x;
+  const int A_veci = A_ctai + (threadIdx.x * SmemAVectorNumElement) % SmemShapeM;
+  const int A_p = a_basep + (threadIdx.x * SmemAVectorNumElement) / SmemShapeM;
+  const auto* a_ptr = &a[A_veci * 1 + A_p * lda];
+  if (A_veci + SmemAVectorNumElement < m && A_p < k) {  // always in boundary, fast path
 #pragma unroll
-  for (int batch = 0; batch < SmemANumBatch; batch++) {
-    const auto A_p = A_batchp + batch * SmemABatchShapeK;
-    reg_a.reg[batch] = A_i >= m || A_p >= k ? 0 : a[A_i * 1 + A_p * lda];
+    for (int v = 0; v < SmemAVectorNumElement; v++) {
+      reg_a.reg[v] = *(a_ptr + v);  // NOTE: this can be vectorized
+    }
+  } else {  // slow path with out of boundary check
+    auto A_i = A_veci;
+#pragma unroll
+    for (int v = 0; v < SmemAVectorNumElement; v++, A_i++) {
+      reg_a.reg[v] = A_i >= m || A_p >= k ? 0 : *(a_ptr + v);
+    }
   }
 }
 
-template <int NumThreads, int SmemShapeK, int SmemShapeN, int SmemBNumBatch = (SmemShapeN * SmemShapeK) / NumThreads>
+template <int NumThreads, int SmemShapeK, int SmemShapeN, int SmemBVectorNumElement = (SmemShapeN * SmemShapeK) / NumThreads>
 __device__ void load_global_b(
-    Registers<SmemBNumBatch>& reg_b,
+    Registers<SmemBVectorNumElement>& reg_b,
     int k,
     int n,
     const float* b,
     int ldb,
     int b_basep
 ) {
-  static_assert(NumThreads % SmemShapeN == 0);
-  constexpr const auto SmemBBatchShapeK = SmemShapeK / SmemBNumBatch;
+  static_assert(SmemBVectorNumElement == 1 || SmemBVectorNumElement == 2 || SmemBVectorNumElement == 4);
+  static_assert(SmemShapeK % SmemBVectorNumElement == 0);
+  static_assert((SmemShapeN * SmemShapeK) % NumThreads == 0);
 
-  const int B_batchp = b_basep + threadIdx.x % SmemBBatchShapeK;
-  const int B_j = SmemShapeN * blockIdx.y + threadIdx.x / SmemBBatchShapeK;
+  const int B_p = b_basep + threadIdx.x % SmemShapeK;
+  const int B_ctaj = SmemShapeN * blockIdx.y;
+  const int B_vecj = B_ctaj + (threadIdx.x / SmemShapeK) * SmemBVectorNumElement;
+  auto B_j = B_vecj;
+  const auto* b_ptr = &b[B_p * 1 + B_j * ldb];
 #pragma unroll
-  for (int batch = 0; batch < SmemBNumBatch; batch++) {
-    const auto B_p = B_batchp + batch * SmemBBatchShapeK;
-    reg_b.reg[batch] = B_p >= k || B_j >= n ? 0 : b[B_p * 1 + B_j * ldb];
+  for (int v = 0; v < SmemBVectorNumElement; v++, B_j += 1, b_ptr += ldb) {
+    reg_b.reg[v] = B_p >= k || B_j >= n ? 0 : *b_ptr;  // NOTE: this load cannot be vectorized, but this enables sts to be vectorized
   }
 }
 
-template <int NumThreads, int SmemShapeM, int SmemShapeK, int SmemANumBatch = (SmemShapeM * SmemShapeK) / NumThreads>
+// Instead of storing with multiple batches, this kernel store to smem in a single vectorized form.
+template <int NumThreads, int SmemShapeM, int SmemShapeK, int SmemAVectorNumElement = (SmemShapeM * SmemShapeK) / NumThreads>
 __device__ void store_smem_a(
     Array<SmemShapeK, SmemShapeM>& smem_a,
-    const Registers<SmemANumBatch>& reg_a
+    const Registers<SmemAVectorNumElement>& reg_a
 ) {
-  static_assert(NumThreads % SmemShapeM == 0);
-  constexpr const auto SmemABatchShapeK = SmemShapeK / SmemANumBatch;
+  static_assert(SmemAVectorNumElement == 1 || SmemAVectorNumElement == 2 || SmemAVectorNumElement == 4);
+  static_assert(SmemShapeM % SmemAVectorNumElement == 0);
+  static_assert((SmemShapeM * SmemShapeK) % NumThreads == 0);
+
+  const auto smem_A_thread_i = (threadIdx.x * SmemAVectorNumElement) % SmemShapeM;
+  const auto smem_A_thread_p = (threadIdx.x * SmemAVectorNumElement) / SmemShapeM;
+  auto* smem_a_ptr = &smem_a.mem[smem_A_thread_p][smem_A_thread_i];
 #pragma unroll
-  for (int batch = 0; batch < SmemANumBatch; batch++) {
-    const auto smem_A_thread_i = threadIdx.x % SmemShapeM;
-    const auto smem_A_thread_p = threadIdx.x / SmemShapeM + batch * SmemABatchShapeK;
-    smem_a.mem[smem_A_thread_p][smem_A_thread_i] = reg_a.reg[batch];
+  for (int v = 0; v < SmemAVectorNumElement; v++) {
+    *(smem_a_ptr + v) = reg_a.reg[v];
   }
 }
 
-template <int NumThreads, int SmemShapeK, int SmemShapeN, int SmemBNumBatch = (SmemShapeN * SmemShapeK) / NumThreads>
+template <int NumThreads, int SmemShapeK, int SmemShapeN, int SmemPad, int SmemBVectorNumElement = (SmemShapeN * SmemShapeK) / NumThreads>
 __device__ void store_smem_b(
-    Array<SmemShapeK, SmemShapeN>& smem_b,
-    const Registers<SmemBNumBatch>& reg_b
+    Array<SmemShapeK, SmemShapeN, SmemPad>& smem_b,
+    const Registers<SmemBVectorNumElement>& reg_b
 ) {
-  static_assert(NumThreads % SmemShapeN == 0);
-  constexpr const auto SmemBBatchShapeK = SmemShapeK / SmemBNumBatch;
+  static_assert(SmemBVectorNumElement == 1 || SmemBVectorNumElement == 2 || SmemBVectorNumElement == 4);
+  static_assert(NumThreads % SmemShapeK == 0);
+  static_assert((SmemShapeN * SmemShapeK) % NumThreads == 0);
+
+  const auto smem_B_thread_p = threadIdx.x % SmemShapeK;
+  const auto smem_B_thread_j = (threadIdx.x / SmemShapeK) * SmemBVectorNumElement;
+  auto* smem_b_ptr = &smem_b.mem[smem_B_thread_p][smem_B_thread_j];
 #pragma unroll
-  for (int batch = 0; batch < SmemBNumBatch; batch++) {
-    const auto smem_B_thread_p = threadIdx.x % SmemBBatchShapeK + batch * SmemBBatchShapeK;
-    const auto smem_B_thread_j = threadIdx.x / SmemBBatchShapeK;
-    smem_b.mem[smem_B_thread_p][smem_B_thread_j] = reg_b.reg[batch];
+  for (int v = 0; v < SmemBVectorNumElement; v++) {
+    *(smem_b_ptr + v) = reg_b.reg[v];
   }
 }
 
@@ -108,12 +126,12 @@ __forceinline__ __device__ void lds128(float& r0, float& r1, float& r2, float& r
   );
 }
 
-template <int FragmentSize, int Step, int SmemShapeK, int SmemShapeM /*or SmemShapeN*/>
+template <int FragmentSize, int Step, int SmemShapeK, int SmemShapeM /*or SmemShapeN*/, int SmemPad>
 __device__ void load_fragment(
-    Fragment<FragmentSize>& frag_a,               // or frag_b
-    const Array<SmemShapeK, SmemShapeM>& smem_a,  // or smem_b
-    int smem_a_thread_p,                          // or smem_b_thread_p
-    int smem_a_thread_i                           // or smem_b_thread_j
+    Fragment<FragmentSize>& frag_a,                        // or frag_b
+    const Array<SmemShapeK, SmemShapeM, SmemPad>& smem_a,  // or smem_b
+    int smem_a_thread_p,                                   // or smem_b_thread_p
+    int smem_a_thread_i                                    // or smem_b_thread_j
 ) {
   static_assert(SmemShapeM % FragmentSize == 0);
   static_assert(FragmentSize % 4 == 0);
@@ -144,7 +162,6 @@ __device__ void rank1_update(Acc<ThreadShapeM, ThreadShapeN>& acc, const Fragmen
   }
 }
 
-// FIXME: change for 2x2
 template <int ThreadShapeM, int ThreadShapeN, int StepM, int StepN>
 __device__ void acc_store(int m, int n, float* C, int ldc, Acc<ThreadShapeM, ThreadShapeN>& acc, int thread_i, int thread_j) {
   // store acc registers results to C
@@ -159,7 +176,6 @@ __device__ void acc_store(int m, int n, float* C, int ldc, Acc<ThreadShapeM, Thr
         for (int a = 0; a < 4; a++) {
           if (thread_j + (bb * StepN + b) < n) {
             if (thread_i + (aa * StepM + a) < m) {
-              // printf("store %d %d, %d+%d*%d+%d, %d+%d*%d+%d  %f\n", thread_i + (aa * StepM + a), thread_j + (bb * StepN + b), thread_i, aa, StepM, a, thread_j, bb, StepN, b, acc[bb * 4 + b][aa * 4 + a]);
               thread_c[(aa * StepM + a) * 1 + (bb * StepN + b) * ldc] = acc[bb * 4 + b][aa * 4 + a];
             }
           }
@@ -185,15 +201,16 @@ __device__ void acc_store(int m, int n, float* C, int ldc, Acc<ThreadShapeM, Thr
 // Each thread process ThreadShapeM x ThreadShapeN of **collocated** data
 // Each thread then load (ThreadShapeM + ThreadShapeN) of elements, and do ThreadShapeM * ThreadShapeN of FMAs.
 template <int NumThreads, int CtaShapeM, int CtaShapeN, int SmemShapeK, int WarpShapeM, int WarpShapeN, int ThreadShapeM, int ThreadShapeN>
-MATMUL_KERNEL_SIGNATURE(matmul_kernel_pipelining_and_warp_tiling_4) {
+MATMUL_KERNEL_SIGNATURE(matmul_kernel_better_sts_1_vectorized_sts) {
   constexpr const auto SmemShapeM = CtaShapeM;
   constexpr const auto SmemShapeN = CtaShapeN;
   static_assert((SmemShapeM * SmemShapeK) % NumThreads == 0 && (SmemShapeN * SmemShapeK) % NumThreads == 0);
   static_assert((CtaShapeM * CtaShapeN / (ThreadShapeM * ThreadShapeN)) == NumThreads);
   static_assert(CtaShapeM % ThreadShapeM == 0 && CtaShapeN % ThreadShapeN == 0);
 
+  constexpr const int SmemBPad = 4;
   __shared__ Array<SmemShapeK, SmemShapeM> smem_a[2];
-  __shared__ Array<SmemShapeK, SmemShapeN> smem_b[2];
+  __shared__ Array<SmemShapeK, SmemShapeN, SmemBPad> smem_b[2];
   Registers<SmemShapeM * SmemShapeK / NumThreads> staging_a;
   Registers<SmemShapeN * SmemShapeK / NumThreads> staging_b;
 
@@ -208,7 +225,6 @@ MATMUL_KERNEL_SIGNATURE(matmul_kernel_pipelining_and_warp_tiling_4) {
   const int cta_warp_j = (warp_id / (CtaShapeM / WarpShapeM)) * WarpShapeN;
   const int cta_thread_i = cta_warp_i + (lane_id % (WarpShapeM / ThreadShapeM)) * 4;
   const int cta_thread_j = cta_warp_j + (lane_id / (WarpShapeM / ThreadShapeM)) * 4;
-  // printf("%d %d %d %d %d\n", warp_id, cta_warp_i, cta_warp_j, warp_i, warp_j);
 
   Acc<ThreadShapeM, ThreadShapeN> acc{};
   Fragment<ThreadShapeM> frag_a[2];
@@ -288,16 +304,18 @@ MATMUL_KERNEL_SIGNATURE(matmul_kernel_pipelining_and_warp_tiling_4) {
     CUDA_CHECK(cudaGetLastError());                                                                                                                                                            \
   }
 
-MATMUL_KERNEL_LAUNCH(matmul_kernel_pipelining_and_warp_tiling_4, 256, 128, 128, 8, 64, 32, 8, 8);
-MATMUL_KERNEL_LAUNCH(matmul_kernel_pipelining_and_warp_tiling_4, 256, 128, 128, 8, 32, 64, 8, 8);
-MATMUL_KERNEL_LAUNCH(matmul_kernel_pipelining_and_warp_tiling_4, 256, 128, 128, 16, 64, 32, 8, 8);
-MATMUL_KERNEL_LAUNCH(matmul_kernel_pipelining_and_warp_tiling_4, 256, 128, 128, 16, 32, 64, 8, 8);
+MATMUL_KERNEL_LAUNCH(matmul_kernel_better_sts_1_vectorized_sts, 256, 128, 128, 8, 64, 32, 8, 8);
+MATMUL_KERNEL_LAUNCH(matmul_kernel_better_sts_1_vectorized_sts, 256, 128, 128, 8, 32, 64, 8, 8);
+// NOTE: For smem block with 128*16 to work with vectorized sts, we need to combine the vectorized sts with the previous
+//       multi-batch sts, because there is no STS.256. Is is a bit complex and boring, so better leave it alone.
+// MATMUL_KERNEL_LAUNCH(matmul_kernel_better_sts_1_vectorized_sts, 256, 128, 128, 16, 64, 32, 8, 8);
+// MATMUL_KERNEL_LAUNCH(matmul_kernel_better_sts_1_vectorized_sts, 256, 128, 128, 16, 32, 64, 8, 8);
 
 MATMUL_DMODULE(m) {
-  REGISTER(launch_matmul_kernel_pipelining_and_warp_tiling_4_256t_cta128x128_smem8_warp64x32_thread8x8);
-  REGISTER(launch_matmul_kernel_pipelining_and_warp_tiling_4_256t_cta128x128_smem8_warp32x64_thread8x8);
-  REGISTER(launch_matmul_kernel_pipelining_and_warp_tiling_4_256t_cta128x128_smem16_warp64x32_thread8x8);
-  REGISTER(launch_matmul_kernel_pipelining_and_warp_tiling_4_256t_cta128x128_smem16_warp32x64_thread8x8);
+  REGISTER(launch_matmul_kernel_better_sts_1_vectorized_sts_256t_cta128x128_smem8_warp64x32_thread8x8);
+  REGISTER(launch_matmul_kernel_better_sts_1_vectorized_sts_256t_cta128x128_smem8_warp32x64_thread8x8);
+  // REGISTER(launch_matmul_kernel_better_sts_1_vectorized_sts_256t_cta128x128_smem16_warp64x32_thread8x8);
+  // REGISTER(launch_matmul_kernel_better_sts_1_vectorized_sts_256t_cta128x128_smem16_warp32x64_thread8x8);
 }
 
 }  // namespace column_major

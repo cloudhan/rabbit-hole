@@ -42,8 +42,6 @@ MATMUL_KERNEL_SIGNATURE(matmul_kernel_thread_tiling_2) {
   auto mC = make_tensor(make_gmem_ptr(c), make_layout(make_shape(m, n), make_stride(_1{}, ldc)));        // col-major, indexed as (m, n)
 
   // coordinate matrix
-  // const auto cA = make_identity_tensor(make_shape(m, k));
-  // const auto cB = make_identity_tensor(make_shape(n, k));
   const auto cC = make_identity_tensor(make_shape(m, n));
 
   const auto CtaShape = make_shape(Int<CtaShapeM>{}, Int<CtaShapeN>{}, k);
@@ -54,15 +52,13 @@ MATMUL_KERNEL_SIGNATURE(matmul_kernel_thread_tiling_2) {
   const auto ctaB = local_tile(mB, CtaShape, cta_coord, make_step(_, _1{}, _1{}));
   auto ctaC = local_tile(mC, CtaShape, cta_coord, make_step(_1{}, _1{}, _));
 
-  // const auto cta_cA = local_tile(cA, CtaShape, cta_coord, make_step(_1{}, _, _1{}));
-  // const auto cta_cB = local_tile(cB, CtaShape, cta_coord, make_step(_, _1{}, _1{}));
   const auto cta_cC = local_tile(cC, CtaShape, cta_coord, make_step(_1{}, _1{}, _));
   const auto [cta_i, cta_j] = cta_cC(_0{}, _0{});
 
   // whether are we in bound. NOTE: same as local_tile right before acc_store
   const auto thread_cC = local_tile(
       cta_cC, make_tile(Int<ThreadShapeM>{}, Int<ThreadShapeN>{}),
-      make_coord(threadIdx.x % Int<CtaShapeM / ThreadShapeM>{}, threadIdx.x / Int<CtaShapeN / ThreadShapeN>{})  // FIXME: not that elegant
+      make_layout(make_shape(Int<CtaShapeM / ThreadShapeM>{}, Int<CtaShapeN / ThreadShapeN>{}))[threadIdx.x]
   );
   const auto [thread_i, thread_j] = thread_cC(_0{}, _0{});
 

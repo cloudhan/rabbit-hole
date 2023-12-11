@@ -88,3 +88,12 @@ cc_binary(
     ],
 )
 
+cc_binary(
+    name = "08_local_tile",
+    srcs = ["08_local_tile.cc"],
+    deps = [
+        "@com_github_nvidia_cutlass//:cutlass",
+        "@local_cuda//:cuda_headers",
+    ],
+)
+

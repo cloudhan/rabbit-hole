@@ -120,8 +120,8 @@ int main() {
     //
     // For the Val, (2,1):(1,0), and can be simplified as 2:1
     //
-    // We can also make a conclusion that the Thr part is not affected by transposition the tensor that it is composed to.
-    // This sometime is also very confusion, but totally make sense.
+    // We can also make a conclusion that the Thr part is not affected by the transpose of the tensor that it is composed to.
+    // This sometime is also very confusing, but totally make sense.
     //   1. Thr is only affected by the thread ordering, that is, it only describe the (re)mapping of the threads (tid -> new id).
     //   2. After being remapped, the tensor's layout is responsible for unmapping from new id to coord then map out as memory offset.
     // The confusion is arised when we think Thr is also responsible for the second part.

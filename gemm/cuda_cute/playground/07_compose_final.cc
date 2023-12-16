@@ -37,13 +37,24 @@ int main() {
     auto tcoord = make_identity_tensor(tensor.shape());
 
     // https://github.com/NVIDIA/cutlass/issues/1230#issuecomment-1839809282
+    // Notice that in Thr part, we describe the threads' layout more directly, the shape is now transposed to be aligned
+    // with the tensor's (memory) layout (compare to ex3, ex4, ex5). The tensor is K-by-N shape, the Thr is also in
+    // K-by-N form now.
+    //
+    // And why is that?
+    //   - In previous examples, ThrVal is a concatenated layout that maps from (thr_idx,val_idx) -> (K,N)
+    //   - In current setting, the Thr is a layout that maps from (tid) -> (tid), to be more precise, it is actually
+    //     (k,n) -> (tid), where size((k,n)) == num_threads. (k,n) does not necessarily cover every elements of the
+    //     tensor, tho.
+    //
+    // Thr, Val and ThrVal are related as follows, and the computing is wrapped in TiledCopy, TiledCopy(Thr, Val) produces ThrVal.
     constexpr const auto Thr = make_layout(
         make_shape(Int<ceil_div(MemShapeK, TileK)>{}, Int<ceil_div(MemShapeN, TileN)>{}),
         make_stride(Int<ceil_div(MemShapeN, TileN)>{}, _1{})
-    );                                                                                                                // thread (k,n) -> thr_idx
-    constexpr const auto Val = make_layout(make_shape(Int<TileK>{}, Int<TileN>{}), make_stride(_1{}, Int<TileK>{}));  // value (k,n) -> val_idx
-    constexpr const auto KN_ThrVal = raked_product(Thr, Val);                                                         // (K,N) -> (thr_idx,val_idx), not in cute the output is 1d logical id, not hierarchical coord.
-    constexpr const auto ThrVal_flat = right_inverse(KN_ThrVal);                                                      // (thr_idx,val_idx) -> (K,N), see note on the print_layout
+    );                                                                                                                // thread (k1,n1) -> thr_idx
+    constexpr const auto Val = make_layout(make_shape(Int<TileK>{}, Int<TileN>{}), make_stride(_1{}, Int<TileK>{}));  // value  (k2,n2) -> val_idx
+    constexpr const auto KN_ThrVal = raked_product(Thr, Val);                                                         // (K,N) -> (thr_idx,val_idx), note in cute the output is 1d logical id, not hierarchical coord.
+    constexpr const auto ThrVal_flat = right_inverse(KN_ThrVal);                                                      // (thr_idx,val_idx) -> (K,N), see note on the print_layout and left_inverse
     constexpr const auto ThrVal = ThrVal_flat.with_shape(size(Thr), size(Val));
     print_layout(Thr);
     // (_2,_3):(_3,_1)
@@ -98,9 +109,7 @@ int main() {
 
     // NOTE for ex5, previously we use zipped_divide, but it creates an annoying Iter mode. compose will not.
     //
-    // The division is for "virtually" padding the tensor, that is, we are manually over-approximate (pad with roundup)
-    // the memory's layout. This is because compose intrinsically does not support over-approximate like local_tile or
-    // *_divide. This is a clever trick for handling it.
+    // The compose(tiler) is for "virtually" padding the tensor.
     auto tiler = make_tile(Int<ceil_div(MemShapeK, TileK) * TileK>{}, Int<ceil_div(MemShapeN, TileN) * TileN>{});
     auto tensor_composed = tensor.compose(tiler).compose(ThrVal);
     auto tcoord_composed = tcoord.compose(tiler).compose(ThrVal);
@@ -129,7 +138,7 @@ int main() {
       }
     }
     print_tensor(tensor);
-    // results are expected this time
+    // results are as expected this time
     // ptr[32b](0x55a985da8360) o (3,8):(_1,3):
     //     0    0    0    1    1    1    2    2
     //     0    0    0    1    1    1    2    2
@@ -137,7 +146,7 @@ int main() {
   }
 
   {  // TiledCopy
-    // This is an abstraction over our previous version, but zipped_divide is used instread of an intermediate compose.
+    // This is an abstraction over our previous version, but zipped_divide is used instead of an intermediate compose.
     auto layout = make_layout(make_shape(Int<MemShapeK>{}, Int<MemShapeN>{}));
     print_layout(layout);
     // (_3,_8):(_1,_3)
@@ -158,14 +167,29 @@ int main() {
     auto tensor = make_tensor(buffer.data(), layout);
     auto tcoord = make_identity_tensor(tensor.shape());
 
-    Layout thr_layout = Layout<Shape<_2, _3>, Stride<_3, _1>>{};  // ThrLayout: (m,n) -> thr_idx
-    Layout val_layout = Layout<Shape<_2, _3>, Stride<_1, _2>>{};  // ValLayout: (m,n) -> val_idx
+    // To make the TiledCopy algorithm work correctly, there is an implicit contract between the implementer and the users:
+    //
+    //   We must follow the same shape order as the tensor we want to work on to describe Thr and Val.
+    //
+    // Here we use the (K,N) order.
+    Layout thr_layout = Layout<Shape<_2, _3>, Stride<_3, _1>>{};  // ThrLayout: (k1,n1) -> thr_idx
+    Layout val_layout = Layout<Shape<_2, _3>, Stride<_1, _2>>{};  // ValLayout: (k2,n2) -> val_idx
 
     auto tiled_copy = make_tiled_copy(Copy_Atom<DefaultCopy, int>{}, thr_layout, val_layout);
+    print(tiled_copy);
+    // TiledCopy
+    //   Tiler_MN:       (_4,_9)
+    //   TiledLayout_TV: ((_3,_2),(_2,_3)):((_12,_2),(_1,_4))
+    // Copy_Atom
+    //   ThrID:        _1:_0
+    //   ValLayoutSrc: (_1,_1):(_0,_0)
+    //   ValLayoutDst: (_1,_1):(_0,_0)
+    //   ValLayoutRef: (_1,_1):(_0,_0)
+    //   ValueType:    32b
 
     clear(tensor);
-    Tensor tensor_composed = tiled_copy.tidfrg_S(tensor);  // (Thr,Val,Iter)
-    Tensor tcoord_composed = tiled_copy.tidfrg_S(tcoord);  // (Thr,Val,Iter)
+    Tensor tensor_composed = tiled_copy.tidfrg_D(tensor);  // (Thr,Val,Iter)
+    Tensor tcoord_composed = tiled_copy.tidfrg_D(tcoord);  // (Thr,Val,Iter)
 
     // Fill all valid positions
     for (int i = 0; i < size<2>(tensor_composed); ++i) {      // For each Iter (Tile)
@@ -183,6 +207,40 @@ int main() {
     //     0    0    0    1    1    1    2    2
     //     0    0    0    1    1    1    2    2
     //     3    3    3    4    4    4    5    5
+
+    clear(tensor);
+    for (int threadIdx_x = 0; threadIdx_x < size<0>(tensor_composed); ++threadIdx_x) {  // For each Thread
+      // Think of 👆 as kernel launch, then 👇 is in the kernel.
+      // In previous tiled_copy, the copy view work on tile level (thr,val,iter), we need to further slice the view to
+      // get the view that a thread will work on. the tiled_copy.get_thread_slice(thr_idx) will create the view for us.
+      auto thr_copy = tiled_copy.get_thread_slice(threadIdx_x);
+      auto tv = thr_copy.partition_D(tensor);
+      auto tc = thr_copy.partition_D(tcoord);
+      for (int i = 0; i < size(tv); i++) {  // For values in the view of the thread's
+        if (elem_less(tc(i), shape(tcoord))) {
+          tv(i) = threadIdx_x;
+        }
+      }
+    }
+    print_tensor(tensor);
+    // ptr[32b](0x55d9cae0b2c0) o (_3,_8):(_1,_3):
+    //     0    0    0    1    1    1    2    2
+    //     0    0    0    1    1    1    2    2
+    //     3    3    3    4    4    4    5    5
+
+    // Final note of the intermediate compose vs intermediate zipped_divide, which one is better?
+    //
+    // In the example, compose is clearly a winner.
+    //
+    // In this example, our (2,3)-shaped thread block (the Thr) fully covered our tensor in 1 go, each thread operates
+    // on (2,3)-shaped tile (the Val).
+    //
+    // In practice, zipped_divede is more general.
+    //
+    // What if we have a little thread block but a huge tensor? Enlarge Val might work but may not be good for
+    // performance. In this case, zipped_divide allows us to design a ThrVal for best performance and do the whole
+    // work in multiple batches, by batch, you just iterate on the Iter mode.
   }
+
   return 0;
 }

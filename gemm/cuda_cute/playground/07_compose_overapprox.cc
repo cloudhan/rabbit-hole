@@ -197,7 +197,7 @@ int main() {
       }
     }
     print_tensor(tensor);
-    // results are expected this time
+    // results are as expected this time
     // ptr[32b](0x55a985da8360) o (3,8):(_1,3):
     //     0    0    0    1    1    1    2    2
     //     0    0    0    1    1    1    2    2

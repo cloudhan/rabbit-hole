@@ -97,3 +97,11 @@ cc_binary(
     ],
 )
 
+cc_binary(
+    name = "09_remap_coord",
+    srcs = ["09_remap_coord.cc"],
+    deps = [
+        "@com_github_nvidia_cutlass//:cutlass",
+        "@local_cuda//:cuda_headers",
+    ],
+)
